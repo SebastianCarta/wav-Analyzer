@@ -201,9 +201,10 @@
       <button id="btnPlay" disabled>Play filtered</button>
       <button id="btnStop" disabled>Stop listening</button>
       <button id="btnSave" class="primary" disabled>Save filtered WAV</button>
-      <button id="btnShareBoth" disabled>Send raw file to Sebastian Carta via email</button>
+      <button id="btnSaveRaw" disabled>Save raw WAV</button>
+      <button id="btnOpenForm" type="button">Open Google Form</button>
     </div>
-    <p class="hint" style="margin-top:8px;">Sends the raw WAV to <strong>sebastian.carta@tyche-lab.com</strong> with f1/f2 in the filename. On phone the file is uploaded and emailed automatically (files up to ~4 MB). Larger files: use the share menu and pick Mail or Gmail.</p>
+    <p class="hint" style="margin-top:8px;">Save the raw WAV (f1/f2 in the filename), then upload it via the Google Form.</p>
     <div class="info" id="fileInfo"></div>
     <p class="status" id="status"></p>
     <audio id="audioPlayer" playsinline webkit-playsinline preload="none" style="display:none"></audio>
@@ -532,7 +533,8 @@
   const btnPlay = $('btnPlay');
   const btnStop = $('btnStop');
   const btnSave = $('btnSave');
-  const btnShareBoth = $('btnShareBoth');
+  const btnSaveRaw = $('btnSaveRaw');
+  const btnOpenForm = $('btnOpenForm');
   const btnRecord = $('btnRecord');
   const btnStopRecord = $('btnStopRecord');
   const fileInfo = $('fileInfo');
@@ -762,8 +764,8 @@
     btnStop.disabled = true;
   }
 
-  const RECIPIENT_EMAIL = 'sebastian.carta@tyche-lab.com';
-  const FORMSUBMIT_MAX_BYTES = 4.5 * 1024 * 1024;
+  const GOOGLE_FORM_URL =
+    'https://docs.google.com/forms/d/e/1FAIpQLSfpwUusmB8_fSUt-bHFXSwm1Ri0QsVkHeCYZpW7yB4kl6evsQ/viewform?usp=publish-editor';
 
   function downloadFile(file) {
     const url = URL.createObjectURL(file);
@@ -774,14 +776,6 @@
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }
-
-  function openMailClient(subject, body) {
-    const params = new URLSearchParams({
-      subject: subject,
-      body: body
-    });
-    window.location.href = 'mailto:' + RECIPIENT_EMAIL + '?' + params.toString();
   }
 
   function formatFreqLabel(f) {
@@ -796,34 +790,7 @@
     return new File([blob], name, { type: 'audio/wav', lastModified: Date.now() });
   }
 
-  async function sendEmailWithAttachment(file, subject, message) {
-    const formData = new FormData();
-    formData.append('attachment', file, file.name);
-    formData.append('_subject', subject);
-    formData.append('message', message);
-    formData.append('_captcha', 'false');
-    formData.append('_template', 'box');
-
-    const response = await fetch('https://formsubmit.co/ajax/' + RECIPIENT_EMAIL, {
-      method: 'POST',
-      headers: { Accept: 'application/json' },
-      body: formData
-    });
-
-    let json = {};
-    try { json = await response.json(); } catch (_) {}
-    if (!response.ok) {
-      throw new Error(json.message || 'Email send failed (' + response.status + ')');
-    }
-    return json;
-  }
-
-  function tryNativeShare(file) {
-    if (!navigator.share) return Promise.reject(new Error('Share not supported'));
-    return navigator.share({ files: [file] });
-  }
-
-  async function shareRawWithBand() {
+  function saveRaw() {
     if (!monoData) {
       setStatus('No raw audio loaded.', 'error');
       return;
@@ -832,49 +799,13 @@
       setStatus('Low frequency must be less than high frequency.', 'error');
       return;
     }
-
-    const f1 = (Math.round(freqLow * 10) / 10).toFixed(1);
-    const f2 = (Math.round(freqHigh * 10) / 10).toFixed(1);
     const file = buildRawFileWithBand();
-    const subject = 'Raw WAV – frequency of interest f1:' + f1 + ' f2:' + f2;
-    const body =
-      'Raw WAV file attached.\n' +
-      'Frequency of interest: f1 = ' + f1 + ' Hz, f2 = ' + f2 + ' Hz.\n' +
-      'Filename: ' + file.name;
+    downloadFile(file);
+    setStatus('Raw file saved: ' + file.name, 'ok');
+  }
 
-    btnShareBoth.disabled = true;
-    setStatus('Sending…');
-
-    try {
-      if (file.size <= FORMSUBMIT_MAX_BYTES) {
-        try {
-          setStatus('Uploading and emailing ' + file.name + '…');
-          await sendEmailWithAttachment(file, subject, body);
-          setStatus('Email sent to ' + RECIPIENT_EMAIL + ' with attachment.', 'ok');
-          return;
-        } catch (err) {
-          console.warn('FormSubmit failed:', err);
-        }
-      } else {
-        setStatus('File is large (' + (file.size / 1024 / 1024).toFixed(1) + ' MB). Opening share…');
-      }
-
-      try {
-        await tryNativeShare(file);
-        navigator.clipboard.writeText(RECIPIENT_EMAIL).catch(() => {});
-        setStatus('In Mail/Gmail the file should be attached. To: ' + RECIPIENT_EMAIL, 'ok');
-        return;
-      } catch (err) {
-        if (err.name === 'AbortError') return;
-        console.warn('Share failed:', err);
-      }
-
-      downloadFile(file);
-      openMailClient(subject, body);
-      setStatus('Downloaded ' + file.name + '. Attach it to the email manually.', 'ok');
-    } finally {
-      btnShareBoth.disabled = false;
-    }
+  function openGoogleForm() {
+    window.open(GOOGLE_FORM_URL, '_blank', 'noopener,noreferrer');
   }
 
   function pickRecordMimeType() {
@@ -1193,7 +1124,7 @@
     btnApply.disabled = true;
     btnPlay.disabled = true;
     btnSave.disabled = true;
-    btnShareBoth.disabled = true;
+    btnSaveRaw.disabled = true;
     filteredData = null;
     rawFile = fileRef;
     spectrum = null;
@@ -1230,7 +1161,7 @@
     updateCursorLabels();
     drawSpectrum();
     btnApply.disabled = false;
-    btnShareBoth.disabled = false;
+    btnSaveRaw.disabled = false;
     setStatus('Audio loaded. Position the cursors and apply the filter.', 'ok');
   }
 
@@ -1428,7 +1359,8 @@
   bindTap(btnPlay, playFiltered);
   bindTap(btnStop, stopPlayback);
   bindTap(btnSave, () => { unlockAudio(); saveFiltered(); });
-  bindTap(btnShareBoth, shareRawWithBand);
+  bindTap(btnSaveRaw, () => { unlockAudio(); saveRaw(); });
+  bindTap(btnOpenForm, openGoogleForm);
   bindTap(btnRecord, startRecording);
   bindTap(btnStopRecord, stopRecording);
   document.querySelector('.file-btn').addEventListener('touchend', unlockAudio, { passive: true });
