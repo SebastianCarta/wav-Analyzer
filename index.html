@@ -203,7 +203,7 @@
       <button id="btnSave" class="primary" disabled>Save filtered WAV</button>
       <button id="btnShareBoth" disabled>Send raw file to Sebastian Carta via email</button>
     </div>
-    <p class="hint" style="margin-top:8px;">Sends only the <strong>raw WAV</strong> to <strong>sebastian.carta@tyche-lab.com</strong>. The filename includes the filter band (f1, f2) from the cursors.</p>
+    <p class="hint" style="margin-top:8px;">Sends the <strong>raw WAV</strong> to <strong>sebastian.carta@tyche-lab.com</strong> (f1, f2 in filename). On phone: choose <strong>Mail</strong> or <strong>Gmail</strong> in the share menu — the file is attached automatically; paste the recipient if the To field is empty.</p>
     <div class="info" id="fileInfo"></div>
     <p class="status" id="status"></p>
     <audio id="audioPlayer" playsinline webkit-playsinline preload="none" style="display:none"></audio>
@@ -795,7 +795,16 @@
     return new File([blob], name, { type: 'audio/wav' });
   }
 
-  function shareRawWithBand() {
+  async function copyRecipientEmail() {
+    try {
+      await navigator.clipboard.writeText(RECIPIENT_EMAIL);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function shareRawWithBand() {
     if (!monoData) {
       setStatus('No raw audio loaded.', 'error');
       return;
@@ -813,10 +822,33 @@
       'Raw WAV file attached.\n' +
       'Frequency of interest: f1 = ' + f1 + ' Hz, f2 = ' + f2 + ' Hz.\n' +
       'Filename: ' + file.name;
+    const shareText =
+      'To: ' + RECIPIENT_EMAIL + '\n' +
+      'Frequency of interest f1: ' + f1 + ' Hz, f2: ' + f2 + ' Hz';
+
+    if (navigator.share) {
+      try {
+        const payload = { files: [file], title: subject, text: shareText };
+        if (!navigator.canShare || navigator.canShare(payload)) {
+          const copied = await copyRecipientEmail();
+          await navigator.share(payload);
+          setStatus(
+            copied
+              ? 'File attached in share. Recipient copied — paste in To: ' + RECIPIENT_EMAIL
+              : 'File attached in share. Send to: ' + RECIPIENT_EMAIL,
+            'ok'
+          );
+          return;
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+        console.warn('Share failed, using download fallback.', err);
+      }
+    }
 
     downloadFile(file);
     openMailClient(subject, body);
-    setStatus('Email opened to ' + RECIPIENT_EMAIL + '. Attach: ' + file.name, 'ok');
+    setStatus('File downloaded. Email opened — attach ' + file.name + ' manually.', 'ok');
   }
 
   function pickRecordMimeType() {
