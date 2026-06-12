@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>WAV Analyzer – FFT & Bandpass Filter</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --border: #2d3a4f;
+      --text: #e8edf4;
+      --muted: #8b9cb3;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --cursor-low: #22c55e;
+      --cursor-high: #ef4444;
+      --warn-bg: #422006;
+      --warn-border: #b45309;
+      --warn-text: #fcd34d;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 12px;
+      line-height: 1.5;
+    }
+
+    h1 { font-size: 1.25rem; font-weight: 600; margin-bottom: 4px; }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-bottom: 12px;
+    }
+
+    .limit-banner {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--warn-bg);
+      border: 1px solid var(--warn-border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-bottom: 12px;
+      font-size: 0.85rem;
+      color: var(--warn-text);
+    }
+
+    .limit-banner svg { flex-shrink: 0; }
+
+    .limit-banner strong { color: #fef3c7; }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    label.file-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: background 0.15s;
+    }
+
+    label.file-btn:hover { background: var(--accent-hover); }
+    label.file-btn input { display: none; }
+
+    button {
+      padding: 10px 16px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      border-radius: 8px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.15s, opacity 0.15s;
+    }
+
+    button:hover:not(:disabled) { background: #243044; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+    .info {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-top: 10px;
+    }
+
+    .info span strong { color: var(--text); }
+
+    .chart-wrap {
+      position: relative;
+      width: 100%;
+      height: 220px;
+      touch-action: none;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      border-radius: 6px;
+      cursor: crosshair;
+    }
+
+    .cursor-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-top: 10px;
+      font-size: 0.85rem;
+    }
+
+    .cursor-legend .dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+
+    .cursor-legend .low .dot { background: var(--cursor-low); }
+    .cursor-legend .high .dot { background: var(--cursor-high); }
+
+    .hint {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+
+    .waveform-wrap { width: 100%; height: 100px; }
+
+    .status {
+      font-size: 0.82rem;
+      color: var(--muted);
+      min-height: 1.2em;
+    }
+
+    .status.error { color: #f87171; }
+    .status.ok { color: #4ade80; }
+
+    @media (max-width: 480px) {
+      h1 { font-size: 1.1rem; }
+      .chart-wrap { height: 180px; }
+    }
+  </style>
+</head>
+<body>
+  <h1>WAV Analyzer – FFT & Bandpass Filter</h1>
+  <p class="subtitle">Load a WAV file, inspect the single-sided spectrum, and apply a bandpass filter between the cursors.</p>
+
+  <div class="limit-banner">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+    </svg>
+    <span>Maximum file duration: <strong>120 seconds</strong>. Longer files will be rejected.</span>
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <label class="file-btn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Open WAV file
+        <input type="file" id="fileInput" accept=".wav,audio/wav,audio/x-wav">
+      </label>
+      <button id="btnApply" disabled>Apply filter</button>
+      <button id="btnPlay" disabled>Play filtered</button>
+      <button id="btnStop" disabled>Stop</button>
+      <button id="btnSave" class="primary" disabled>Save filtered WAV</button>
+    </div>
+    <div class="info" id="fileInfo"></div>
+    <p class="status" id="status"></p>
+  </div>
+
+  <div class="panel">
+    <h2 style="font-size:0.95rem;margin-bottom:8px;">FFT Spectrum (single-sided)</h2>
+    <div class="chart-wrap">
+      <canvas id="spectrumCanvas"></canvas>
+    </div>
+    <div class="cursor-legend">
+      <span class="low"><span class="dot"></span>F<sub>low</sub>: <strong id="freqLow">–</strong> Hz</span>
+      <span class="high"><span class="dot"></span>F<sub>high</sub>: <strong id="freqHigh">–</strong> Hz</span>
+      <span>Bandwidth: <strong id="bandWidth">–</strong> Hz</span>
+    </div>
+    <p class="hint">Drag the green (low) and red (high) cursors on the spectrum. On mobile, use your finger.</p>
+  </div>
+
+  <div class="panel">
+    <h2 style="font-size:0.95rem;margin-bottom:8px;">Filtered waveform</h2>
+    <div class="chart-wrap waveform-wrap">
+      <canvas id="waveformCanvas"></canvas>
+    </div>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+
+  const MAX_DURATION_SEC = 120;
+  const MAX_FFT_SAMPLES = 262144;
+  const FILTER_CHUNK = 65536;
+
+  function arrayMax(arr, floor, start) {
+    let max = floor || 0;
+    const i0 = start || 0;
+    for (let i = i0; i < arr.length; i++) {
+      if (arr[i] > max) max = arr[i];
+    }
+    return max;
+  }
+
+  function nextPow2(n) {
+    let p = 1;
+    while (p < n) p <<= 1;
+    return p;
+  }
+
+  function fft(re, im) {
+    const n = re.length;
+    let j = 0;
+    for (let i = 1; i < n; i++) {
+      let bit = n >> 1;
+      for (; j & bit; bit >>= 1) j ^= bit;
+      j ^= bit;
+      if (i < j) {
+        [re[i], re[j]] = [re[j], re[i]];
+        [im[i], im[j]] = [im[j], im[i]];
+      }
+    }
+    for (let len = 2; len <= n; len <<= 1) {
+      const ang = -2 * Math.PI / len;
+      const wRe = Math.cos(ang);
+      const wIm = Math.sin(ang);
+      for (let i = 0; i < n; i += len) {
+        let curRe = 1, curIm = 0;
+        for (let k = 0; k < len / 2; k++) {
+          const uRe = re[i + k], uIm = im[i + k];
+          const vRe = re[i + k + len / 2] * curRe - im[i + k + len / 2] * curIm;
+          const vIm = re[i + k + len / 2] * curIm + im[i + k + len / 2] * curRe;
+          re[i + k] = uRe + vRe;
+          im[i + k] = uIm + vIm;
+          re[i + k + len / 2] = uRe - vRe;
+          im[i + k + len / 2] = uIm - vIm;
+          const tmpRe = curRe * wRe - curIm * wIm;
+          curIm = curRe * wIm + curIm * wRe;
+          curRe = tmpRe;
+        }
+      }
+    }
+  }
+
+  function ifft(re, im) {
+    for (let i = 0; i < im.length; i++) im[i] = -im[i];
+    fft(re, im);
+    const n = re.length;
+    for (let i = 0; i < n; i++) {
+      re[i] /= n;
+      im[i] = -im[i] / n;
+    }
+  }
+
+  function hannWindow(n) {
+    const w = new Float32Array(n);
+    if (n === 1) { w[0] = 1; return w; }
+    for (let i = 0; i < n; i++) w[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (n - 1)));
+    return w;
+  }
+
+  function toMono(buffer) {
+    if (buffer.numberOfChannels === 1) return buffer.getChannelData(0).slice();
+    const len = buffer.length;
+    const mono = new Float32Array(len);
+    for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+      const data = buffer.getChannelData(ch);
+      for (let i = 0; i < len; i++) mono[i] += data[i];
+    }
+    const scale = 1 / buffer.numberOfChannels;
+    for (let i = 0; i < len; i++) mono[i] *= scale;
+    return mono;
+  }
+
+  function extractSegment(signal, maxSamples) {
+    if (signal.length <= maxSamples) return { data: signal, segment: false };
+    const start = Math.floor((signal.length - maxSamples) / 2);
+    return { data: signal.subarray(start, start + maxSamples), segment: true };
+  }
+
+  function computeSingleSidedFFT(signal, sampleRate) {
+    const { data, segment } = extractSegment(signal, MAX_FFT_SAMPLES);
+    const n = nextPow2(data.length);
+    const re = new Float32Array(n);
+    const im = new Float32Array(n);
+    const win = hannWindow(data.length);
+
+    let mean = 0;
+    for (let i = 0; i < data.length; i++) mean += data[i];
+    mean /= data.length;
+
+    for (let i = 0; i < data.length; i++) re[i] = (data[i] - mean) * win[i];
+
+    fft(re, im);
+
+    const half = Math.floor(n / 2) + 1;
+    const freqs = new Float32Array(half);
+    const mags = new Float32Array(half);
+    const binHz = sampleRate / n;
+
+    for (let k = 0; k < half; k++) {
+      freqs[k] = k * binHz;
+      const mag = Math.sqrt(re[k] * re[k] + im[k] * im[k]);
+      mags[k] = k === 0 || k === n / 2 ? mag / n : (2 * mag / n);
+    }
+
+    return { freqs, mags, fftSize: n, binHz, segment };
+  }
+
+  function linearFreqTicks(nyquist, targetCount) {
+    const raw = nyquist / targetCount;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const norm = raw / mag;
+    let step = mag;
+    if (norm > 5) step = 10 * mag;
+    else if (norm > 2) step = 5 * mag;
+    else if (norm > 1) step = 2 * mag;
+
+    const ticks = [0];
+    for (let f = step; f < nyquist; f += step) ticks.push(f);
+    ticks.push(nyquist);
+    return ticks;
+  }
+
+  function mirrorPad(signal, padLen) {
+    const len = signal.length;
+    const padded = new Float32Array(len + 2 * padLen);
+    for (let i = 0; i < padLen; i++) {
+      padded[padLen - 1 - i] = signal[i];
+      padded[padLen + len + i] = signal[len - 1 - i];
+    }
+    for (let i = 0; i < len; i++) padded[padLen + i] = signal[i];
+    return padded;
+  }
+
+  function smoothBandpassGain(k, kLow, kHigh, transBins) {
+    if (transBins <= 0) return (k >= kLow && k <= kHigh) ? 1 : 0;
+    if (k < kLow - transBins || k > kHigh + transBins) return 0;
+    if (k >= kLow && k <= kHigh) return 1;
+    if (k < kLow) {
+      const x = (k - (kLow - transBins)) / transBins;
+      return 0.5 * (1 - Math.cos(Math.PI * x));
+    }
+    const x = ((kHigh + transBins) - k) / transBins;
+    return 0.5 * (1 - Math.cos(Math.PI * x));
+  }
+
+  function computeFilterPadLen(sampleRate, fLow, fHigh, signalLen) {
+    const bandwidth = Math.max(fHigh - fLow, 1);
+    const settle = Math.ceil(Math.max(
+      (sampleRate / Math.max(fLow, 1)) * 2,
+      (sampleRate / bandwidth) * 2
+    ));
+    return Math.min(Math.floor(signalLen / 2), Math.max(64, settle));
+  }
+
+  function computeTransientFadeSamples(sampleRate, fLow, fHigh, signalLen) {
+    return computeFilterPadLen(sampleRate, fLow, fHigh, signalLen);
+  }
+
+  function applyEdgeFade(signal, fadeLen) {
+    if (fadeLen < 1 || signal.length <= fadeLen * 2) return signal;
+    const out = new Float32Array(signal);
+    for (let i = 0; i < fadeLen; i++) {
+      const g = 0.5 * (1 - Math.cos(Math.PI * (i + 1) / (fadeLen + 1)));
+      out[i] *= g;
+      out[out.length - 1 - i] *= g;
+    }
+    return out;
+  }
+
+  function bandpassFilterDirect(signal, sampleRate, fLow, fHigh) {
+    const padLen = computeFilterPadLen(sampleRate, fLow, fHigh, signal.length);
+    const padded = mirrorPad(signal, padLen);
+    const n = nextPow2(padded.length);
+    const re = new Float32Array(n);
+    const im = new Float32Array(n);
+
+    for (let i = 0; i < padded.length; i++) re[i] = padded[i];
+
+    fft(re, im);
+
+    const binWidth = sampleRate / n;
+    const kLow = Math.ceil(fLow / binWidth);
+    const kHigh = Math.floor(fHigh / binWidth);
+    const transHz = Math.max(binWidth * 4, Math.min((fHigh - fLow) * 0.08, 250));
+    const transBins = Math.max(2, Math.ceil(transHz / binWidth));
+
+    for (let k = 0; k < n; k++) {
+      const kPos = k <= n / 2 ? k : n - k;
+      const gain = smoothBandpassGain(kPos, kLow, kHigh, transBins);
+      re[k] *= gain;
+      im[k] *= gain;
+    }
+
+    ifft(re, im);
+
+    const out = new Float32Array(signal.length);
+    for (let i = 0; i < signal.length; i++) out[i] = re[i + padLen];
+    return out;
+  }
+
+  function bandpassFilter(signal, sampleRate, fLow, fHigh) {
+    let out;
+
+    if (signal.length <= FILTER_CHUNK) {
+      out = bandpassFilterDirect(signal, sampleRate, fLow, fHigh);
+    } else {
+      const N = FILTER_CHUNK;
+      const hop = N >> 1;
+      const win = hannWindow(N);
+      out = new Float32Array(signal.length);
+      const norm = new Float32Array(signal.length);
+
+      for (let start = 0; start < signal.length; start += hop) {
+        const chunk = new Float32Array(N);
+        const valid = Math.min(N, signal.length - start);
+        for (let i = 0; i < valid; i++) chunk[i] = signal[start + i] * win[i];
+
+        const filtered = bandpassFilterDirect(chunk, sampleRate, fLow, fHigh);
+        for (let i = 0; i < valid; i++) {
+          const w = win[i];
+          out[start + i] += filtered[i] * w;
+          norm[start + i] += w * w;
+        }
+      }
+
+      for (let i = 0; i < out.length; i++) {
+        if (norm[i] > 1e-10) out[i] /= norm[i];
+      }
+    }
+
+    const fadeLen = computeTransientFadeSamples(sampleRate, fLow, fHigh, signal.length);
+    return applyEdgeFade(out, fadeLen);
+  }
+
+  function encodeWAV(samples, sampleRate, numChannels) {
+    const buffer = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(buffer);
+    const writeStr = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + samples.length * 2, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * numChannels * 2, true);
+    view.setUint16(32, numChannels * 2, true);
+    view.setUint16(34, 16, true);
+    writeStr(36, 'data');
+    view.setUint32(40, samples.length * 2, true);
+
+    let offset = 44;
+    for (let i = 0; i < samples.length; i++) {
+      const s = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      offset += 2;
+    }
+    return new Blob([buffer], { type: 'audio/wav' });
+  }
+
+  let audioCtx = null;
+  let sourceBuffer = null;
+  let monoData = null;
+  let sampleRate = 0;
+  let spectrum = null;
+  let filteredData = null;
+  let playingSource = null;
+  let freqLow = 0;
+  let freqHigh = 0;
+  let dragging = null;
+
+  const $ = id => document.getElementById(id);
+  const fileInput = $('fileInput');
+  const btnApply = $('btnApply');
+  const btnPlay = $('btnPlay');
+  const btnStop = $('btnStop');
+  const btnSave = $('btnSave');
+  const fileInfo = $('fileInfo');
+  const status = $('status');
+  const spectrumCanvas = $('spectrumCanvas');
+  const waveformCanvas = $('waveformCanvas');
+  const freqLowEl = $('freqLow');
+  const freqHighEl = $('freqHigh');
+  const bandWidthEl = $('bandWidth');
+
+  function setStatus(msg, type) {
+    status.textContent = msg;
+    status.className = 'status' + (type ? ' ' + type : '');
+  }
+
+  function getAudioContext() {
+    if (!audioCtx) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new Ctx();
+    }
+    return audioCtx;
+  }
+
+  function resizeCanvas(canvas) {
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.floor(rect.width * dpr);
+    canvas.height = Math.floor(rect.height * dpr);
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { ctx, w: rect.width, h: rect.height };
+  }
+
+  function freqToX(freq, w, nyquist) {
+    if (nyquist <= 0) return 0;
+    return (freq / nyquist) * w;
+  }
+
+  function xToFreq(x, w, nyquist) {
+    return Math.max(0, Math.min(nyquist, (x / w) * nyquist));
+  }
+
+  const DBFS_MIN_AMP = 1e-10;
+  const DBFS_FLOOR = -120;
+  const DBFS_SPAN = 80;
+  const DBFS_BOTTOM_MARGIN = 6;
+
+  function linAmpToDbFS(amp) {
+    if (amp <= 0) return DBFS_FLOOR;
+    return 20 * Math.log10(Math.max(amp, DBFS_MIN_AMP));
+  }
+
+  function buildColumnAmps(mags, binHz, nyquist, pxCount) {
+    const colDbFS = new Float32Array(pxCount);
+    let maxDb = -Infinity;
+    let minDb = Infinity;
+
+    for (let px = 0; px < pxCount; px++) {
+      const f0 = (px / pxCount) * nyquist;
+      const f1 = ((px + 1) / pxCount) * nyquist;
+      const k0 = Math.max(1, Math.floor(f0 / binHz));
+      const k1 = Math.min(mags.length - 1, Math.max(k0, Math.ceil(f1 / binHz) - 1));
+      let amp = 0;
+      for (let k = k0; k <= k1; k++) {
+        if (mags[k] > amp) amp = mags[k];
+      }
+      const db = linAmpToDbFS(amp);
+      colDbFS[px] = db;
+      if (amp > 0) {
+        if (db > maxDb) maxDb = db;
+        if (db < minDb) minDb = db;
+      }
+    }
+
+    if (!isFinite(maxDb)) maxDb = DBFS_FLOOR;
+
+    return { colDbFS, maxDb, minDb };
+  }
+
+  function computeDbRange(maxDb, minDb) {
+    const dbMargin = 20 * Math.log10(1.1);
+    let bottomDb = Math.max(DBFS_FLOOR, maxDb - DBFS_SPAN);
+    if (isFinite(minDb) && minDb < bottomDb) {
+      bottomDb = Math.max(DBFS_FLOOR, minDb - DBFS_BOTTOM_MARGIN);
+    }
+    const topDb = Math.max(maxDb + dbMargin, bottomDb + 20);
+    return { topDb, bottomDb, dbRange: topDb - bottomDb };
+  }
+
+  function drawSpectrum() {
+    if (!spectrum) return;
+    const { ctx, w, h } = resizeCanvas(spectrumCanvas);
+    const { mags, binHz } = spectrum;
+    const nyquist = sampleRate / 2;
+    const pad = { l: 52, r: 12, t: 12, b: 32 };
+    const plotW = w - pad.l - pad.r;
+    const plotH = h - pad.t - pad.b;
+
+    ctx.fillStyle = '#121a26';
+    ctx.fillRect(0, 0, w, h);
+
+    const pxCount = Math.floor(plotW);
+    const { colDbFS, maxDb, minDb } = buildColumnAmps(mags, binHz, nyquist, pxCount);
+    const { topDb, bottomDb, dbRange } = computeDbRange(maxDb, minDb);
+
+    ctx.strokeStyle = '#2d3a4f';
+    ctx.lineWidth = 1;
+    ctx.font = '11px sans-serif';
+    ctx.fillStyle = '#8b9cb3';
+
+    function formatDbFS(db) {
+      return db.toFixed(1);
+    }
+
+    function formatFreq(f) {
+      if (f === 0) return '0';
+      if (f >= 1000) return (f / 1000).toFixed(f >= 10000 ? 0 : 1) + 'k';
+      return String(Math.round(f));
+    }
+
+    for (let t = 0; t <= 4; t++) {
+      const frac = t / 4;
+      const y = pad.t + plotH - frac * plotH;
+      ctx.beginPath();
+      ctx.moveTo(pad.l, y);
+      ctx.lineTo(pad.l + plotW, y);
+      ctx.stroke();
+      const labelY = frac === 0 ? y - 4 : y + 4;
+      ctx.fillText(formatDbFS(bottomDb + frac * dbRange), 4, labelY);
+    }
+
+    const gridFreqs = linearFreqTicks(nyquist, 6);
+    for (const f of gridFreqs) {
+      const x = pad.l + freqToX(f, plotW, nyquist);
+      ctx.beginPath();
+      ctx.moveTo(x, pad.t);
+      ctx.lineTo(x, pad.t + plotH);
+      ctx.stroke();
+      const label = formatFreq(f);
+      const labelW = ctx.measureText(label).width;
+      ctx.fillText(label, Math.min(Math.max(pad.l, x - labelW / 2), pad.l + plotW - labelW), h - 6);
+    }
+
+    ctx.fillStyle = '#60a5fa';
+    for (let px = 0; px < pxCount; px++) {
+      const db = Math.max(bottomDb, Math.min(topDb, colDbFS[px]));
+      const norm = (db - bottomDb) / dbRange;
+      if (norm <= 0) continue;
+      const barH = Math.max(1, norm * plotH);
+      ctx.fillRect(pad.l + px, pad.t + plotH - barH, 1, barH);
+    }
+
+    const xLow = pad.l + freqToX(freqLow, plotW, nyquist);
+    const xHigh = pad.l + freqToX(freqHigh, plotW, nyquist);
+    ctx.fillStyle = 'rgba(245, 158, 11, 0.15)';
+    ctx.fillRect(xLow, pad.t, xHigh - xLow, plotH);
+
+    function drawCursor(x, color, label) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, pad.t);
+      ctx.lineTo(x, pad.t + plotH);
+      ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText(label, x + 4, pad.t + 14);
+    }
+    drawCursor(xLow, '#22c55e', 'LOW');
+    drawCursor(xHigh, '#ef4444', 'HIGH');
+
+    ctx.fillStyle = '#8b9cb3';
+    ctx.font = '11px sans-serif';
+    ctx.save();
+    ctx.translate(10, pad.t + plotH / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText('dBFS', -18, 0);
+    ctx.restore();
+    ctx.textAlign = 'center';
+    ctx.fillText('Frequency (Hz) – linear scale', pad.l + plotW / 2, h - 4);
+    ctx.textAlign = 'left';
+
+    spectrumCanvas._plot = { pad, plotW, plotH, nyquist };
+  }
+
+  function drawWaveform(data, color) {
+    const { ctx, w, h } = resizeCanvas(waveformCanvas);
+    ctx.fillStyle = '#121a26';
+    ctx.fillRect(0, 0, w, h);
+
+    if (!data || data.length === 0) {
+      ctx.fillStyle = '#8b9cb3';
+      ctx.font = '13px sans-serif';
+      ctx.fillText('Apply the filter to display the waveform', 20, h / 2);
+      return;
+    }
+
+    const mid = h / 2;
+    ctx.strokeStyle = color || '#f59e0b';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = 0; x < w; x++) {
+      const idx = Math.min(data.length - 1, Math.floor(x * data.length / w));
+      const y = mid - data[idx] * (mid - 4);
+      if (x === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  function updateCursorLabels() {
+    freqLowEl.textContent = freqLow.toFixed(1);
+    freqHighEl.textContent = freqHigh.toFixed(1);
+    bandWidthEl.textContent = Math.max(0, freqHigh - freqLow).toFixed(1);
+  }
+
+  function stopPlayback() {
+    if (playingSource) {
+      try { playingSource.stop(); } catch (_) {}
+      playingSource = null;
+    }
+    btnPlay.disabled = !filteredData;
+    btnStop.disabled = true;
+  }
+
+  async function loadFile(file) {
+    stopPlayback();
+    setStatus('Loading…');
+    btnApply.disabled = true;
+    btnPlay.disabled = true;
+    btnSave.disabled = true;
+    filteredData = null;
+    spectrum = null;
+    monoData = null;
+    drawWaveform(null);
+
+    try {
+      const ctx = getAudioContext();
+      if (ctx.state === 'suspended') await ctx.resume();
+
+      const arrayBuf = await file.arrayBuffer();
+      const decoded = await ctx.decodeAudioData(arrayBuf.slice(0));
+
+      if (decoded.duration > MAX_DURATION_SEC) {
+        setStatus(
+          'File rejected: duration is ' + decoded.duration.toFixed(1) +
+          ' s. Maximum allowed is ' + MAX_DURATION_SEC + ' s.',
+          'error'
+        );
+        fileInfo.innerHTML = '';
+        fileInput.value = '';
+        return;
+      }
+
+      sourceBuffer = decoded;
+      sampleRate = sourceBuffer.sampleRate;
+      monoData = toMono(sourceBuffer);
+      spectrum = computeSingleSidedFFT(monoData, sampleRate);
+
+      const nyquist = sampleRate / 2;
+      freqLow = nyquist * 0.1;
+      freqHigh = nyquist * 0.4;
+
+      let infoHtml =
+        '<span><strong>File:</strong> ' + escapeHtml(file.name) + '</span>' +
+        '<span><strong>Sample rate:</strong> ' + sampleRate + ' Hz</span>' +
+        '<span><strong>Duration:</strong> ' + sourceBuffer.duration.toFixed(2) + ' s</span>' +
+        '<span><strong>Samples:</strong> ' + monoData.length.toLocaleString() + '</span>' +
+        '<span><strong>Channels:</strong> ' + sourceBuffer.numberOfChannels + '</span>';
+
+      if (spectrum.segment) {
+        infoHtml += '<span><strong>FFT note:</strong> spectrum computed on a central segment for performance</span>';
+      }
+
+      fileInfo.innerHTML = infoHtml;
+      updateCursorLabels();
+      drawSpectrum();
+      btnApply.disabled = false;
+      setStatus('File loaded. Position the cursors and apply the filter.', 'ok');
+    } catch (err) {
+      setStatus('Error: ' + err.message, 'error');
+      console.error(err);
+    }
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function applyFilter() {
+    if (!monoData) return;
+    if (freqLow >= freqHigh) {
+      setStatus('Low frequency must be less than high frequency.', 'error');
+      return;
+    }
+    stopPlayback();
+    btnApply.disabled = true;
+    setStatus('Filtering… (this may take a moment for long files)');
+
+    setTimeout(() => {
+      try {
+        filteredData = bandpassFilter(monoData, sampleRate, freqLow, freqHigh);
+        drawWaveform(filteredData);
+        btnPlay.disabled = false;
+        btnSave.disabled = false;
+        setStatus(
+          'Filter applied (' + freqLow.toFixed(1) + ' – ' + freqHigh.toFixed(1) + ' Hz).',
+          'ok'
+        );
+      } catch (err) {
+        setStatus('Error: ' + err.message, 'error');
+        console.error(err);
+      } finally {
+        btnApply.disabled = false;
+      }
+    }, 30);
+  }
+
+  async function playFiltered() {
+    if (!filteredData) return;
+    stopPlayback();
+    const ctx = getAudioContext();
+    if (ctx.state === 'suspended') await ctx.resume();
+
+    const buf = ctx.createBuffer(1, filteredData.length, sampleRate);
+    buf.copyToChannel(filteredData, 0);
+
+    playingSource = ctx.createBufferSource();
+    playingSource.buffer = buf;
+    playingSource.connect(ctx.destination);
+    playingSource.onended = () => {
+      playingSource = null;
+      btnStop.disabled = true;
+      btnPlay.disabled = false;
+    };
+    playingSource.start();
+    btnPlay.disabled = true;
+    btnStop.disabled = false;
+  }
+
+  function saveFiltered() {
+    if (!filteredData) return;
+    const blob = encodeWAV(filteredData, sampleRate, 1);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const baseName = fileInput.files[0]?.name.replace(/\.[^.]+$/, '') || 'signal';
+    a.href = url;
+    a.download = baseName + '_filtered_' + Math.round(freqLow) + '-' + Math.round(freqHigh) + 'Hz.wav';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setStatus('File saved.', 'ok');
+  }
+
+  function getPointerPos(e) {
+    const rect = spectrumCanvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    return clientX - rect.left;
+  }
+
+  function hitTest(x) {
+    const plot = spectrumCanvas._plot;
+    if (!plot) return null;
+    const { pad, plotW, nyquist } = plot;
+    const xLow = pad.l + freqToX(freqLow, plotW, nyquist);
+    const xHigh = pad.l + freqToX(freqHigh, plotW, nyquist);
+    const threshold = 20;
+    if (Math.abs(x - xLow) < threshold) return 'low';
+    if (Math.abs(x - xHigh) < threshold) return 'high';
+    return null;
+  }
+
+  function moveCursor(which, x) {
+    const plot = spectrumCanvas._plot;
+    if (!plot) return;
+    const { pad, plotW, nyquist } = plot;
+    const relX = Math.max(0, Math.min(plotW, x - pad.l));
+    const freq = xToFreq(relX, plotW, nyquist);
+
+    if (which === 'low') freqLow = Math.min(freq, freqHigh - 1);
+    else freqHigh = Math.max(freq, freqLow + 1);
+
+    updateCursorLabels();
+    drawSpectrum();
+  }
+
+  function onPointerDown(e) {
+    if (!spectrum) return;
+    e.preventDefault();
+    const x = getPointerPos(e);
+    dragging = hitTest(x);
+    if (!dragging) {
+      const plot = spectrumCanvas._plot;
+      if (!plot) return;
+      const { pad, plotW, nyquist } = plot;
+      const relX = x - pad.l;
+      if (relX < 0 || relX > plotW) return;
+      const freq = xToFreq(relX, plotW, nyquist);
+      if (Math.abs(freq - freqLow) < Math.abs(freq - freqHigh)) {
+        dragging = 'low';
+        freqLow = Math.min(freq, freqHigh - 1);
+      } else {
+        dragging = 'high';
+        freqHigh = Math.max(freq, freqLow + 1);
+      }
+      updateCursorLabels();
+      drawSpectrum();
+    }
+  }
+
+  function onPointerDownMove(e) {
+    if (!dragging) return;
+    e.preventDefault();
+    moveCursor(dragging, getPointerPos(e));
+  }
+
+  function onPointerUp() { dragging = null; }
+
+  spectrumCanvas.addEventListener('mousedown', onPointerDown);
+  spectrumCanvas.addEventListener('mousemove', onPointerDownMove);
+  window.addEventListener('mouseup', onPointerUp);
+  spectrumCanvas.addEventListener('touchstart', onPointerDown, { passive: false });
+  spectrumCanvas.addEventListener('touchmove', onPointerDownMove, { passive: false });
+  window.addEventListener('touchend', onPointerUp);
+
+  fileInput.addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (file) loadFile(file);
+  });
+
+  btnApply.addEventListener('click', applyFilter);
+  btnPlay.addEventListener('click', playFiltered);
+  btnStop.addEventListener('click', stopPlayback);
+  btnSave.addEventListener('click', saveFiltered);
+
+  window.addEventListener('resize', () => {
+    drawSpectrum();
+    if (filteredData) drawWaveform(filteredData);
+  });
+
+  drawWaveform(null);
+})();
+</script>
+</body>
+</html>
