@@ -156,7 +156,11 @@
       margin-top: 8px;
     }
 
-    .waveform-wrap { width: 100%; height: 100px; }
+    button.record-btn.recording {
+      background: #ef4444;
+      border-color: #ef4444;
+      color: #fff;
+    }
 
     .status {
       font-size: 0.82rem;
@@ -191,11 +195,22 @@
         Open WAV file
         <input type="file" id="fileInput" accept=".wav,audio/wav,audio/x-wav">
       </label>
+      <button id="btnRecord" class="record-btn">Record (unprocessed)</button>
+      <button id="btnStopRecord" disabled>Stop recording</button>
       <button id="btnApply" disabled>Apply filter</button>
       <button id="btnPlay" disabled>Play filtered</button>
-      <button id="btnStop" disabled>Stop</button>
+      <button id="btnStop" disabled>Stop listening</button>
       <button id="btnSave" class="primary" disabled>Save filtered WAV</button>
+      <button id="btnShareBoth" disabled>Send raw &amp; filtered files to Sebastian Carta via email</button>
     </div>
+    <div class="row" style="margin-top:10px;">
+      <label style="font-size:0.85rem;color:var(--muted);display:flex;align-items:center;gap:8px;flex:1;min-width:220px;">
+        Recipient email:
+        <input type="email" id="emailInput" value="sebastian.carta@tyche-lab.com"
+          style="flex:1;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:#121a26;color:var(--text);font-size:0.9rem;">
+      </label>
+    </div>
+    <p class="hint" style="margin-top:8px;">Send to Sebastian Carta raw and filtered file via email. On mobile, Share opens Mail with the WAV attached.</p>
     <div class="info" id="fileInfo"></div>
     <p class="status" id="status"></p>
     <audio id="audioPlayer" playsinline webkit-playsinline preload="none" style="display:none"></audio>
@@ -212,13 +227,6 @@
       <span>Bandwidth: <strong id="bandWidth">–</strong> Hz</span>
     </div>
     <p class="hint">Drag the green (low) and red (high) cursors on the spectrum. On mobile, use your finger.</p>
-  </div>
-
-  <div class="panel">
-    <h2 style="font-size:0.95rem;margin-bottom:8px;">Filtered waveform</h2>
-    <div class="chart-wrap waveform-wrap">
-      <canvas id="waveformCanvas"></canvas>
-    </div>
   </div>
 
 <script>
@@ -504,6 +512,20 @@
   let sampleRate = 0;
   let spectrum = null;
   let filteredData = null;
+  let rawFile = null;
+  let recordingActive = false;
+  let recordStream = null;
+  let recordSource = null;
+  let recordProcessor = null;
+  let recordWorklet = null;
+  let recordGain = null;
+  let mediaRecorder = null;
+  let recordChunks = [];
+  let recordUseMediaRecorder = false;
+  let recordPeak = 0;
+  let recordSamples = [];
+  let recordSampleRate = 0;
+  let recordTimer = null;
   let playingSource = null;
   let playbackUrl = null;
   let audioUnlocked = false;
@@ -517,10 +539,13 @@
   const btnPlay = $('btnPlay');
   const btnStop = $('btnStop');
   const btnSave = $('btnSave');
+  const btnShareBoth = $('btnShareBoth');
+  const btnRecord = $('btnRecord');
+  const btnStopRecord = $('btnStopRecord');
+  const emailInput = $('emailInput');
   const fileInfo = $('fileInfo');
   const status = $('status');
   const spectrumCanvas = $('spectrumCanvas');
-  const waveformCanvas = $('waveformCanvas');
   const freqLowEl = $('freqLow');
   const freqHighEl = $('freqHigh');
   const bandWidthEl = $('bandWidth');
@@ -632,9 +657,12 @@
     const { ctx, w, h } = resizeCanvas(spectrumCanvas);
     const { mags, binHz } = spectrum;
     const nyquist = sampleRate / 2;
-    const pad = { l: 52, r: 12, t: 12, b: 32 };
+    const isNarrow = w < 500;
+    const pad = { l: 52, r: 12, t: 12, b: isNarrow ? 50 : 42 };
     const plotW = w - pad.l - pad.r;
     const plotH = h - pad.t - pad.b;
+    const freqTickY = pad.t + plotH + 14;
+    const freqTitleY = pad.t + plotH + (isNarrow ? 38 : 32);
 
     ctx.fillStyle = '#121a26';
     ctx.fillRect(0, 0, w, h);
@@ -678,7 +706,7 @@
       ctx.stroke();
       const label = formatFreq(f);
       const labelW = ctx.measureText(label).width;
-      ctx.fillText(label, Math.min(Math.max(pad.l, x - labelW / 2), pad.l + plotW - labelW), h - 6);
+      ctx.fillText(label, Math.min(Math.max(pad.l, x - labelW / 2), pad.l + plotW - labelW), freqTickY);
     }
 
     ctx.fillStyle = '#60a5fa';
@@ -717,35 +745,10 @@
     ctx.fillText('dBFS', -18, 0);
     ctx.restore();
     ctx.textAlign = 'center';
-    ctx.fillText('Frequency (Hz) – linear scale', pad.l + plotW / 2, h - 4);
+    ctx.fillText('Frequency (Hz) – linear scale', pad.l + plotW / 2, freqTitleY);
     ctx.textAlign = 'left';
 
     spectrumCanvas._plot = { pad, plotW, plotH, nyquist };
-  }
-
-  function drawWaveform(data, color) {
-    const { ctx, w, h } = resizeCanvas(waveformCanvas);
-    ctx.fillStyle = '#121a26';
-    ctx.fillRect(0, 0, w, h);
-
-    if (!data || data.length === 0) {
-      ctx.fillStyle = '#8b9cb3';
-      ctx.font = '13px sans-serif';
-      ctx.fillText('Apply the filter to display the waveform', 20, h / 2);
-      return;
-    }
-
-    const mid = h / 2;
-    ctx.strokeStyle = color || '#f59e0b';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let x = 0; x < w; x++) {
-      const idx = Math.min(data.length - 1, Math.floor(x * data.length / w));
-      const y = mid - data[idx] * (mid - 4);
-      if (x === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
   }
 
   function updateCursorLabels() {
@@ -767,60 +770,445 @@
     btnStop.disabled = true;
   }
 
-  async function loadFile(file) {
+  function getUserEmail() {
+    return emailInput.value.trim();
+  }
+
+  function saveUserEmail() {
+    const email = getUserEmail();
+    if (email) localStorage.setItem('wavAnalyzerEmail', email);
+  }
+
+  const DEFAULT_EMAIL = 'sebastian.carta@tyche-lab.com';
+
+  function loadUserEmail() {
+    const saved = localStorage.getItem('wavAnalyzerEmail');
+    emailInput.value = saved || DEFAULT_EMAIL;
+  }
+
+  function downloadFile(file) {
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.name || 'audio.wav';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function openMailClient(subject, body) {
+    const email = getUserEmail();
+    const to = email ? encodeURIComponent(email) : '';
+    const params = 'subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+    window.location.href = to ? ('mailto:' + to + '?' + params) : ('mailto:?' + params);
+  }
+
+  function buildFilteredFile() {
+    const baseName = rawFile?.name.replace(/\.[^.]+$/, '') || 'signal';
+    const name = baseName + '_filtered_' + Math.round(freqLow) + '-' + Math.round(freqHigh) + 'Hz.wav';
+    const blob = encodeWAV(filteredData, sampleRate, 1);
+    return new File([blob], name, { type: 'audio/wav' });
+  }
+
+  async function shareBothFiles() {
+    if (!rawFile) {
+      setStatus('No raw file loaded.', 'error');
+      return;
+    }
+    if (!filteredData) {
+      setStatus('Apply the filter first.', 'error');
+      return;
+    }
+
+    saveUserEmail();
+    const filteredFile = buildFilteredFile();
+    const files = [rawFile, filteredFile];
+    const subject = 'Raw and filtered WAV files for Sebastian Carta – WAV Analyzer';
+    const body = 'Please find the raw and filtered WAV files for Sebastian Carta (sebastian.carta@tyche-lab.com).\n\nIf attachments are missing, add the downloaded files manually.';
+
+    if (navigator.share) {
+      try {
+        const payload = { title: 'Raw and filtered WAV', files: files };
+        if (!navigator.canShare || navigator.canShare(payload)) {
+          await navigator.share(payload);
+          setStatus('Both files shared successfully.', 'ok');
+          return;
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+      }
+    }
+
+    downloadFile(rawFile);
+    downloadFile(filteredFile);
+    openMailClient(subject, body);
+    setStatus('Both files downloaded. Attach them to the email if needed.', 'ok');
+  }
+
+  function pickRecordMimeType() {
+    const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/aac'];
+    for (const t of types) {
+      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) return t;
+    }
+    return '';
+  }
+
+  function buildMicConstraints() {
+    return {
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false
+      }
+    };
+  }
+
+  function setRecordingUi(active) {
+    btnRecord.disabled = active;
+    btnRecord.classList.toggle('recording', active);
+    btnStopRecord.disabled = !active;
+    fileInput.disabled = active;
+  }
+
+  function pushRecordedChunk(float32) {
+    if (!recordingActive || !float32 || !float32.length) return;
+    recordSamples.push(new Float32Array(float32));
+    for (let i = 0; i < float32.length; i += 32) {
+      const v = Math.abs(float32[i]);
+      if (v > recordPeak) recordPeak = v;
+    }
+  }
+
+  function monoFromInputBuffer(input) {
+    const ch0 = input.getChannelData(0);
+    const mono = new Float32Array(ch0.length);
+    if (input.numberOfChannels > 1) {
+      const ch1 = input.getChannelData(1);
+      for (let i = 0; i < ch0.length; i++) mono[i] = 0.5 * (ch0[i] + ch1[i]);
+    } else {
+      mono.set(ch0);
+    }
+    return mono;
+  }
+
+  async function setupRecordWorklet(ctx) {
+    const code = `
+      class RecorderProcessor extends AudioWorkletProcessor {
+        process(inputs) {
+          const input = inputs[0];
+          if (!input || !input[0] || input[0].length === 0) return true;
+          const ch0 = input[0];
+          const mono = new Float32Array(ch0.length);
+          if (input.length > 1 && input[1]) {
+            const ch1 = input[1];
+            for (let i = 0; i < ch0.length; i++) mono[i] = 0.5 * (ch0[i] + ch1[i]);
+          } else {
+            mono.set(ch0);
+          }
+          this.port.postMessage(mono.buffer, [mono.buffer]);
+          return true;
+        }
+      }
+      registerProcessor('recorder-processor', RecorderProcessor);
+    `;
+    const url = URL.createObjectURL(new Blob([code], { type: 'application/javascript' }));
+    await ctx.audioWorklet.addModule(url);
+    URL.revokeObjectURL(url);
+    recordWorklet = new AudioWorkletNode(ctx, 'recorder-processor');
+    recordWorklet.port.onmessage = e => {
+      if (e.data) pushRecordedChunk(new Float32Array(e.data));
+    };
+  }
+
+  function setupRecordScriptProcessor(ctx, inputChannels) {
+    const chIn = Math.max(1, Math.min(2, inputChannels || 2));
+    recordProcessor = ctx.createScriptProcessor(4096, chIn, 1);
+    recordProcessor.onaudioprocess = e => {
+      pushRecordedChunk(monoFromInputBuffer(e.inputBuffer));
+    };
+  }
+
+  function teardownRecordNodes() {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      try { mediaRecorder.stop(); } catch (_) {}
+    }
+    mediaRecorder = null;
+    recordChunks = [];
+    recordUseMediaRecorder = false;
+    if (recordWorklet) {
+      recordWorklet.port.onmessage = null;
+      try { recordWorklet.disconnect(); } catch (_) {}
+      recordWorklet = null;
+    }
+    if (recordProcessor) {
+      recordProcessor.onaudioprocess = null;
+      try { recordProcessor.disconnect(); } catch (_) {}
+      recordProcessor = null;
+    }
+    if (recordSource) {
+      try { recordSource.disconnect(); } catch (_) {}
+      recordSource = null;
+    }
+    if (recordGain) {
+      try { recordGain.disconnect(); } catch (_) {}
+      recordGain = null;
+    }
+    if (recordStream) {
+      recordStream.getTracks().forEach(t => t.stop());
+      recordStream = null;
+    }
+  }
+
+  function mergeRecordedSamples() {
+    const totalLen = recordSamples.reduce((sum, chunk) => sum + chunk.length, 0);
+    const mono = new Float32Array(totalLen);
+    let offset = 0;
+    for (const chunk of recordSamples) {
+      mono.set(chunk, offset);
+      offset += chunk.length;
+    }
+    recordSamples = [];
+    return mono;
+  }
+
+  async function loadRecordingBuffer(buffer, fileName) {
+    const mono = toMono(buffer);
+    const wavBlob = encodeWAV(mono, buffer.sampleRate, 1);
+    const file = new File([wavBlob], fileName, { type: 'audio/wav' });
+    await loadFromBuffer(buffer, fileName, file);
+  }
+
+  async function finalizeMediaRecording() {
+    const recorder = mediaRecorder;
+    const mimeType = recorder ? recorder.mimeType : 'audio/webm';
+    return new Promise((resolve, reject) => {
+      if (!recorder || recorder.state === 'inactive') {
+        reject(new Error('Recorder not active'));
+        return;
+      }
+      recorder.onstop = async () => {
+        try {
+          const blob = new Blob(recordChunks, { type: mimeType });
+          recordChunks = [];
+          if (blob.size < 64) {
+            reject(new Error('No audio data captured'));
+            return;
+          }
+          const ctx = getAudioContext();
+          const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
+          resolve(decoded);
+        } catch (err) {
+          reject(err);
+        }
+      };
+      try { recorder.requestData(); } catch (_) {}
+      recorder.stop();
+    });
+  }
+
+  async function finalizeRecording() {
+    if (recordTimer) {
+      clearInterval(recordTimer);
+      recordTimer = null;
+    }
+    recordingActive = false;
+    setRecordingUi(false);
+
+    try {
+      let buffer;
+
+      if (recordUseMediaRecorder && mediaRecorder) {
+        buffer = await finalizeMediaRecording();
+        if (recordStream) {
+          recordStream.getTracks().forEach(t => t.stop());
+          recordStream = null;
+        }
+        mediaRecorder = null;
+      } else {
+        const mono = mergeRecordedSamples();
+        teardownRecordNodes();
+        if (!mono.length) {
+          setStatus('Recording empty. Check the microphone and try again.', 'error');
+          return;
+        }
+        if (recordPeak < 1e-8) {
+          setStatus('Recording is silent. Check the microphone in system settings.', 'error');
+          return;
+        }
+        let trimmed = mono;
+        const durationSec = trimmed.length / recordSampleRate;
+        if (durationSec > MAX_DURATION_SEC) {
+          trimmed = trimmed.subarray(0, Math.floor(MAX_DURATION_SEC * recordSampleRate));
+        }
+        const ctx = getAudioContext();
+        buffer = ctx.createBuffer(1, trimmed.length, recordSampleRate);
+        buffer.copyToChannel(trimmed, 0);
+      }
+
+      if (!buffer || buffer.duration < 0.05) {
+        setStatus('Recording too short or empty. Try again.', 'error');
+        teardownRecordNodes();
+        return;
+      }
+
+      teardownRecordNodes();
+      await loadRecordingBuffer(buffer, 'recording_unprocessed.wav');
+      setStatus('Unprocessed recording loaded.', 'ok');
+    } catch (err) {
+      teardownRecordNodes();
+      setStatus('Recording failed: ' + err.message, 'error');
+      console.error(err);
+    }
+  }
+
+  function stopRecording() {
+    if (!recordingActive) {
+      teardownRecordNodes();
+      setRecordingUi(false);
+      return;
+    }
+    finalizeRecording();
+  }
+
+  async function startPcmRecording(ctx, stream) {
+    recordUseMediaRecorder = false;
+    recordSampleRate = ctx.sampleRate;
+    recordSource = ctx.createMediaStreamSource(stream);
+    const settings = stream.getAudioTracks()[0]?.getSettings?.() || {};
+    const inputChannels = settings.channelCount || 2;
+
+    if (ctx.audioWorklet) {
+      try {
+        await setupRecordWorklet(ctx);
+        recordSource.connect(recordWorklet);
+        recordWorklet.connect(ctx.destination);
+        return;
+      } catch (workletErr) {
+        console.warn('AudioWorklet failed, using ScriptProcessor.', workletErr);
+      }
+    }
+
+    setupRecordScriptProcessor(ctx, inputChannels);
+    recordSource.connect(recordProcessor);
+    recordProcessor.connect(ctx.destination);
+  }
+
+  async function startRecording() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus('Microphone not supported on this device.', 'error');
+      return;
+    }
+
+    unlockAudio();
+    stopPlayback();
+    if (recordingActive) stopRecording();
+
+    teardownRecordNodes();
+    recordSamples = [];
+    recordChunks = [];
+    recordPeak = 0;
+
+    try {
+      const ctx = getAudioContext();
+      await ctx.resume();
+
+      recordStream = await navigator.mediaDevices.getUserMedia(buildMicConstraints());
+      const mimeType = pickRecordMimeType();
+
+      recordingActive = true;
+      setRecordingUi(true);
+
+      if (mimeType && typeof MediaRecorder !== 'undefined') {
+        recordUseMediaRecorder = true;
+        mediaRecorder = new MediaRecorder(recordStream, { mimeType: mimeType });
+        recordChunks = [];
+        mediaRecorder.ondataavailable = e => {
+          if (e.data && e.data.size > 0) recordChunks.push(e.data);
+        };
+        mediaRecorder.start(200);
+      } else {
+        await startPcmRecording(ctx, recordStream);
+      }
+
+      const startTime = Date.now();
+      recordTimer = setInterval(() => {
+        const elapsed = (Date.now() - startTime) / 1000;
+        let extra = '';
+        if (recordUseMediaRecorder) {
+          const bytes = recordChunks.reduce((s, c) => s + c.size, 0);
+          extra = bytes > 0 ? (bytes / 1024).toFixed(1) + ' KB captured' : 'waiting for data…';
+        } else {
+          extra = recordPeak > 0
+            ? (20 * Math.log10(recordPeak)).toFixed(1) + ' dBFS'
+            : (recordSamples.length ? 'chunks: ' + recordSamples.length : 'no signal');
+        }
+        setStatus('Recording… ' + elapsed.toFixed(0) + ' s / ' + MAX_DURATION_SEC + ' s | ' + extra, 'ok');
+        if (elapsed >= MAX_DURATION_SEC) stopRecording();
+      }, 250);
+    } catch (err) {
+      recordingActive = false;
+      teardownRecordNodes();
+      setRecordingUi(false);
+      setStatus('Microphone access denied or unavailable.', 'error');
+      console.error(err);
+    }
+  }
+
+  async function loadFromBuffer(decoded, displayName, fileRef) {
+    stopRecording();
     stopPlayback();
     setStatus('Loading…');
     btnApply.disabled = true;
     btnPlay.disabled = true;
     btnSave.disabled = true;
+    btnShareBoth.disabled = true;
     filteredData = null;
+    rawFile = fileRef;
     spectrum = null;
     monoData = null;
-    drawWaveform(null);
 
+    if (decoded.duration > MAX_DURATION_SEC) {
+      setStatus(
+        'Audio rejected: duration is ' + decoded.duration.toFixed(1) +
+        ' s. Maximum allowed is ' + MAX_DURATION_SEC + ' s.',
+        'error'
+      );
+      fileInfo.innerHTML = '';
+      fileInput.value = '';
+      rawFile = null;
+      return;
+    }
+
+    sourceBuffer = decoded;
+    sampleRate = sourceBuffer.sampleRate;
+    monoData = toMono(sourceBuffer);
+    spectrum = computeSingleSidedFFT(monoData, sampleRate);
+
+    const nyquist = sampleRate / 2;
+    freqLow = nyquist * 0.1;
+    freqHigh = nyquist * 0.4;
+
+    fileInfo.innerHTML =
+      '<span><strong>File:</strong> ' + escapeHtml(displayName) + '</span>' +
+      '<span><strong>Sample rate:</strong> ' + sampleRate + ' Hz</span>' +
+      '<span><strong>Duration:</strong> ' + sourceBuffer.duration.toFixed(2) + ' s</span>' +
+      '<span><strong>Samples:</strong> ' + monoData.length.toLocaleString() + '</span>' +
+      '<span><strong>Channels:</strong> ' + sourceBuffer.numberOfChannels + '</span>';
+
+    updateCursorLabels();
+    drawSpectrum();
+    btnApply.disabled = false;
+    btnShareBoth.disabled = !(rawFile && filteredData);
+    setStatus('Audio loaded. Position the cursors and apply the filter.', 'ok');
+  }
+
+  async function loadFile(file) {
     try {
       const ctx = getAudioContext();
       if (ctx.state === 'suspended') await ctx.resume();
-
-      const arrayBuf = await file.arrayBuffer();
-      const decoded = await ctx.decodeAudioData(arrayBuf.slice(0));
-
-      if (decoded.duration > MAX_DURATION_SEC) {
-        setStatus(
-          'File rejected: duration is ' + decoded.duration.toFixed(1) +
-          ' s. Maximum allowed is ' + MAX_DURATION_SEC + ' s.',
-          'error'
-        );
-        fileInfo.innerHTML = '';
-        fileInput.value = '';
-        return;
-      }
-
-      sourceBuffer = decoded;
-      sampleRate = sourceBuffer.sampleRate;
-      monoData = toMono(sourceBuffer);
-      spectrum = computeSingleSidedFFT(monoData, sampleRate);
-
-      const nyquist = sampleRate / 2;
-      freqLow = nyquist * 0.1;
-      freqHigh = nyquist * 0.4;
-
-      let infoHtml =
-        '<span><strong>File:</strong> ' + escapeHtml(file.name) + '</span>' +
-        '<span><strong>Sample rate:</strong> ' + sampleRate + ' Hz</span>' +
-        '<span><strong>Duration:</strong> ' + sourceBuffer.duration.toFixed(2) + ' s</span>' +
-        '<span><strong>Samples:</strong> ' + monoData.length.toLocaleString() + '</span>' +
-        '<span><strong>Channels:</strong> ' + sourceBuffer.numberOfChannels + '</span>';
-
-      if (spectrum.segment) {
-        infoHtml += '<span><strong>FFT note:</strong> spectrum computed on a central segment for performance</span>';
-      }
-
-      fileInfo.innerHTML = infoHtml;
-      updateCursorLabels();
-      drawSpectrum();
-      btnApply.disabled = false;
-      setStatus('File loaded. Position the cursors and apply the filter.', 'ok');
+      const decoded = await ctx.decodeAudioData(await file.arrayBuffer());
+      await loadFromBuffer(decoded, file.name, file);
     } catch (err) {
       setStatus('Error: ' + err.message, 'error');
       console.error(err);
@@ -844,9 +1232,9 @@
     setTimeout(() => {
       try {
         filteredData = bandpassFilter(monoData, sampleRate, freqLow, freqHigh);
-        drawWaveform(filteredData);
         btnPlay.disabled = false;
         btnSave.disabled = false;
+        btnShareBoth.disabled = false;
         setStatus(
           'Filter applied (' + freqLow.toFixed(1) + ' – ' + freqHigh.toFixed(1) + ' Hz).',
           'ok'
@@ -1010,14 +1398,17 @@
   bindTap(btnPlay, playFiltered);
   bindTap(btnStop, stopPlayback);
   bindTap(btnSave, () => { unlockAudio(); saveFiltered(); });
+  bindTap(btnShareBoth, shareBothFiles);
+  bindTap(btnRecord, startRecording);
+  bindTap(btnStopRecord, stopRecording);
+  emailInput.addEventListener('change', saveUserEmail);
   document.querySelector('.file-btn').addEventListener('touchend', unlockAudio, { passive: true });
+
+  loadUserEmail();
 
   window.addEventListener('resize', () => {
     drawSpectrum();
-    if (filteredData) drawWaveform(filteredData);
   });
-
-  drawWaveform(null);
 })();
 </script>
 </body>
