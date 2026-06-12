@@ -198,6 +198,7 @@
     </div>
     <div class="info" id="fileInfo"></div>
     <p class="status" id="status"></p>
+    <audio id="audioPlayer" playsinline webkit-playsinline preload="none" style="display:none"></audio>
   </div>
 
   <div class="panel">
@@ -504,6 +505,8 @@
   let spectrum = null;
   let filteredData = null;
   let playingSource = null;
+  let playbackUrl = null;
+  let audioUnlocked = false;
   let freqLow = 0;
   let freqHigh = 0;
   let dragging = null;
@@ -521,6 +524,7 @@
   const freqLowEl = $('freqLow');
   const freqHighEl = $('freqHigh');
   const bandWidthEl = $('bandWidth');
+  const audioPlayer = $('audioPlayer');
 
   function setStatus(msg, type) {
     status.textContent = msg;
@@ -533,6 +537,28 @@
       audioCtx = new Ctx();
     }
     return audioCtx;
+  }
+
+  function unlockAudio() {
+    if (audioUnlocked) return;
+    const ctx = getAudioContext();
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    try {
+      const buf = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+      src.stop(0);
+    } catch (_) {}
+    audioUnlocked = true;
+  }
+
+  function revokePlaybackUrl() {
+    if (playbackUrl) {
+      URL.revokeObjectURL(playbackUrl);
+      playbackUrl = null;
+    }
   }
 
   function resizeCanvas(canvas) {
@@ -733,6 +759,10 @@
       try { playingSource.stop(); } catch (_) {}
       playingSource = null;
     }
+    audioPlayer.pause();
+    audioPlayer.currentTime = 0;
+    audioPlayer.removeAttribute('src');
+    revokePlaybackUrl();
     btnPlay.disabled = !filteredData;
     btnStop.disabled = true;
   }
@@ -830,26 +860,42 @@
     }, 30);
   }
 
-  async function playFiltered() {
+  function playFiltered() {
     if (!filteredData) return;
+    unlockAudio();
     stopPlayback();
-    const ctx = getAudioContext();
-    if (ctx.state === 'suspended') await ctx.resume();
 
-    const buf = ctx.createBuffer(1, filteredData.length, sampleRate);
-    buf.copyToChannel(filteredData, 0);
+    try {
+      const blob = encodeWAV(filteredData, sampleRate, 1);
+      playbackUrl = URL.createObjectURL(blob);
+      audioPlayer.src = playbackUrl;
+      audioPlayer.onended = () => {
+        btnStop.disabled = true;
+        btnPlay.disabled = false;
+        setStatus('Playback finished.', 'ok');
+      };
+      audioPlayer.onerror = () => {
+        setStatus('Playback failed on this device.', 'error');
+        btnStop.disabled = true;
+        btnPlay.disabled = false;
+      };
 
-    playingSource = ctx.createBufferSource();
-    playingSource.buffer = buf;
-    playingSource.connect(ctx.destination);
-    playingSource.onended = () => {
-      playingSource = null;
-      btnStop.disabled = true;
-      btnPlay.disabled = false;
-    };
-    playingSource.start();
-    btnPlay.disabled = true;
-    btnStop.disabled = false;
+      const playPromise = audioPlayer.play();
+      if (playPromise && playPromise.catch) {
+        playPromise.catch(err => {
+          setStatus('Playback failed: ' + err.message, 'error');
+          btnPlay.disabled = false;
+          btnStop.disabled = true;
+        });
+      }
+
+      btnPlay.disabled = true;
+      btnStop.disabled = false;
+      setStatus('Playing filtered audio…', 'ok');
+    } catch (err) {
+      setStatus('Playback failed: ' + err.message, 'error');
+      console.error(err);
+    }
   }
 
   function saveFiltered() {
@@ -939,14 +985,32 @@
   window.addEventListener('touchend', onPointerUp);
 
   fileInput.addEventListener('change', e => {
+    unlockAudio();
     const file = e.target.files[0];
     if (file) loadFile(file);
   });
 
-  btnApply.addEventListener('click', applyFilter);
-  btnPlay.addEventListener('click', playFiltered);
-  btnStop.addEventListener('click', stopPlayback);
-  btnSave.addEventListener('click', saveFiltered);
+  function bindTap(el, handler) {
+    let lastFire = 0;
+    const run = () => {
+      const now = Date.now();
+      if (now - lastFire < 400) return;
+      lastFire = now;
+      handler();
+    };
+    if (window.PointerEvent) {
+      el.addEventListener('pointerup', run);
+    } else {
+      el.addEventListener('click', run);
+      el.addEventListener('touchend', e => { e.preventDefault(); run(); }, { passive: false });
+    }
+  }
+
+  bindTap(btnApply, () => { unlockAudio(); applyFilter(); });
+  bindTap(btnPlay, playFiltered);
+  bindTap(btnStop, stopPlayback);
+  bindTap(btnSave, () => { unlockAudio(); saveFiltered(); });
+  document.querySelector('.file-btn').addEventListener('touchend', unlockAudio, { passive: true });
 
   window.addEventListener('resize', () => {
     drawSpectrum();
