@@ -76,8 +76,9 @@
       align-items: center;
       gap: 8px;
       padding: 10px 16px;
-      background: var(--accent);
-      color: #fff;
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
       border-radius: 8px;
       cursor: pointer;
       font-size: 0.9rem;
@@ -85,7 +86,7 @@
       transition: background 0.15s;
     }
 
-    label.file-btn:hover { background: var(--accent-hover); }
+    label.file-btn:hover { background: #243044; }
     label.file-btn input { display: none; }
 
     button {
@@ -95,14 +96,45 @@
       color: var(--text);
       border-radius: 8px;
       font-size: 0.9rem;
+      font-weight: 500;
       cursor: pointer;
       transition: background 0.15s, opacity 0.15s;
     }
 
     button:hover:not(:disabled) { background: #243044; }
     button:disabled { opacity: 0.4; cursor: not-allowed; }
-    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-    button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+    .field-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .field-row label {
+      font-size: 0.9rem;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .field-row input {
+      flex: 1;
+      min-width: 180px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      border-radius: 8px;
+      font-size: 0.9rem;
+    }
+
+    .field-row input::placeholder { color: #5c6b80; }
+
+    .field-row input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
 
     .info {
       display: flex;
@@ -189,6 +221,11 @@
   </div>
 
   <div class="panel">
+    <div class="field-row">
+      <label for="fileDesc">File description</label>
+      <input type="text" id="fileDesc" maxlength="80" placeholder="e.g. engine idle test" autocomplete="off">
+    </div>
+    <p class="hint" style="margin-top:0;margin-bottom:10px;">Optional. Saved WAV files use this text as a filename prefix (e.g. <strong>engine_idle_test_frequency_of_interest_f1_2400_f2_9600.wav</strong>).</p>
     <div class="row">
       <label class="file-btn">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -200,11 +237,11 @@
       <button id="btnApply" disabled>Apply filter</button>
       <button id="btnPlay" disabled>Play filtered</button>
       <button id="btnStop" disabled>Stop listening</button>
-      <button id="btnSave" class="primary" disabled>Save filtered WAV</button>
       <button id="btnSaveRaw" disabled>Save raw WAV</button>
+      <button id="btnSave" disabled>Save filtered WAV</button>
       <button id="btnOpenForm" type="button">Open Google Form</button>
     </div>
-    <p class="hint" style="margin-top:8px;">Save the raw WAV (f1/f2 in the filename), then upload it via the Google Form.</p>
+    <p class="hint" style="margin-top:8px;">Save the raw WAV, then upload it via the Google Form.</p>
     <div class="info" id="fileInfo"></div>
     <p class="status" id="status"></p>
     <audio id="audioPlayer" playsinline webkit-playsinline preload="none" style="display:none"></audio>
@@ -529,6 +566,7 @@
 
   const $ = id => document.getElementById(id);
   const fileInput = $('fileInput');
+  const fileDescInput = $('fileDesc');
   const btnApply = $('btnApply');
   const btnPlay = $('btnPlay');
   const btnStop = $('btnStop');
@@ -782,10 +820,36 @@
     return (Math.round(f * 10) / 10).toString().replace('.', 'p');
   }
 
-  function buildRawFileWithBand() {
+  function sanitizeFilenamePrefix(text) {
+    if (!text) return '';
+    return text
+      .trim()
+      .replace(/[^\w\s\-]/g, '')
+      .replace(/\s+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '')
+      .slice(0, 60);
+  }
+
+  function getDescriptionPrefix() {
+    const prefix = sanitizeFilenamePrefix(fileDescInput.value);
+    return prefix ? prefix + '_' : '';
+  }
+
+  function buildRawFileName() {
     const f1 = formatFreqLabel(freqLow);
     const f2 = formatFreqLabel(freqHigh);
-    const name = 'frequency_of_interest_f1_' + f1 + '_f2_' + f2 + '.wav';
+    return getDescriptionPrefix() + 'frequency_of_interest_f1_' + f1 + '_f2_' + f2 + '.wav';
+  }
+
+  function buildFilteredFileName() {
+    const f1 = formatFreqLabel(freqLow);
+    const f2 = formatFreqLabel(freqHigh);
+    return getDescriptionPrefix() + 'filtered_f1_' + f1 + '_f2_' + f2 + '.wav';
+  }
+
+  function buildRawFileWithBand() {
+    const name = buildRawFileName();
     const blob = encodeWAV(monoData, sampleRate, 1);
     return new File([blob], name, { type: 'audio/wav', lastModified: Date.now() });
   }
@@ -1249,17 +1313,14 @@
 
   function saveFiltered() {
     if (!filteredData) return;
+    if (freqLow >= freqHigh) {
+      setStatus('Low frequency must be less than high frequency.', 'error');
+      return;
+    }
+    const name = buildFilteredFileName();
     const blob = encodeWAV(filteredData, sampleRate, 1);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const baseName = fileInput.files[0]?.name.replace(/\.[^.]+$/, '') || 'signal';
-    a.href = url;
-    a.download = baseName + '_filtered_' + Math.round(freqLow) + '-' + Math.round(freqHigh) + 'Hz.wav';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    setStatus('File saved.', 'ok');
+    downloadFile(new File([blob], name, { type: 'audio/wav' }));
+    setStatus('Filtered file saved: ' + name, 'ok');
   }
 
   function getPointerPos(e) {
