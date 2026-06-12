@@ -201,16 +201,9 @@
       <button id="btnPlay" disabled>Play filtered</button>
       <button id="btnStop" disabled>Stop listening</button>
       <button id="btnSave" class="primary" disabled>Save filtered WAV</button>
-      <button id="btnShareBoth" disabled>Send raw &amp; filtered files to Sebastian Carta via email</button>
+      <button id="btnShareBoth" disabled>Send raw file to Sebastian Carta via email</button>
     </div>
-    <div class="row" style="margin-top:10px;">
-      <label style="font-size:0.85rem;color:var(--muted);display:flex;align-items:center;gap:8px;flex:1;min-width:220px;">
-        Recipient email:
-        <input type="email" id="emailInput" value="sebastian.carta@tyche-lab.com"
-          style="flex:1;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:#121a26;color:var(--text);font-size:0.9rem;">
-      </label>
-    </div>
-    <p class="hint" style="margin-top:8px;">Send to Sebastian Carta raw and filtered file via email. On mobile, Share opens Mail with the WAV attached.</p>
+    <p class="hint" style="margin-top:8px;">Sends only the <strong>raw WAV</strong> to <strong>sebastian.carta@tyche-lab.com</strong>. The filename includes the filter band (f1, f2) from the cursors.</p>
     <div class="info" id="fileInfo"></div>
     <p class="status" id="status"></p>
     <audio id="audioPlayer" playsinline webkit-playsinline preload="none" style="display:none"></audio>
@@ -542,7 +535,6 @@
   const btnShareBoth = $('btnShareBoth');
   const btnRecord = $('btnRecord');
   const btnStopRecord = $('btnStopRecord');
-  const emailInput = $('emailInput');
   const fileInfo = $('fileInfo');
   const status = $('status');
   const spectrumCanvas = $('spectrumCanvas');
@@ -770,21 +762,7 @@
     btnStop.disabled = true;
   }
 
-  function getUserEmail() {
-    return emailInput.value.trim();
-  }
-
-  function saveUserEmail() {
-    const email = getUserEmail();
-    if (email) localStorage.setItem('wavAnalyzerEmail', email);
-  }
-
-  const DEFAULT_EMAIL = 'sebastian.carta@tyche-lab.com';
-
-  function loadUserEmail() {
-    const saved = localStorage.getItem('wavAnalyzerEmail');
-    emailInput.value = saved || DEFAULT_EMAIL;
-  }
+  const RECIPIENT_EMAIL = 'sebastian.carta@tyche-lab.com';
 
   function downloadFile(file) {
     const url = URL.createObjectURL(file);
@@ -798,52 +776,47 @@
   }
 
   function openMailClient(subject, body) {
-    const email = getUserEmail();
-    const to = email ? encodeURIComponent(email) : '';
-    const params = 'subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
-    window.location.href = to ? ('mailto:' + to + '?' + params) : ('mailto:?' + params);
+    const params = new URLSearchParams({
+      subject: subject,
+      body: body
+    });
+    window.location.href = 'mailto:' + RECIPIENT_EMAIL + '?' + params.toString();
   }
 
-  function buildFilteredFile() {
-    const baseName = rawFile?.name.replace(/\.[^.]+$/, '') || 'signal';
-    const name = baseName + '_filtered_' + Math.round(freqLow) + '-' + Math.round(freqHigh) + 'Hz.wav';
-    const blob = encodeWAV(filteredData, sampleRate, 1);
+  function formatFreqLabel(f) {
+    return (Math.round(f * 10) / 10).toString().replace('.', 'p');
+  }
+
+  function buildRawFileWithBand() {
+    const f1 = formatFreqLabel(freqLow);
+    const f2 = formatFreqLabel(freqHigh);
+    const name = 'frequency_of_interest_f1_' + f1 + '_f2_' + f2 + '.wav';
+    const blob = encodeWAV(monoData, sampleRate, 1);
     return new File([blob], name, { type: 'audio/wav' });
   }
 
-  async function shareBothFiles() {
-    if (!rawFile) {
-      setStatus('No raw file loaded.', 'error');
+  function shareRawWithBand() {
+    if (!monoData) {
+      setStatus('No raw audio loaded.', 'error');
       return;
     }
-    if (!filteredData) {
-      setStatus('Apply the filter first.', 'error');
+    if (freqLow >= freqHigh) {
+      setStatus('Low frequency must be less than high frequency.', 'error');
       return;
     }
 
-    saveUserEmail();
-    const filteredFile = buildFilteredFile();
-    const files = [rawFile, filteredFile];
-    const subject = 'Raw and filtered WAV files for Sebastian Carta – WAV Analyzer';
-    const body = 'Please find the raw and filtered WAV files for Sebastian Carta (sebastian.carta@tyche-lab.com).\n\nIf attachments are missing, add the downloaded files manually.';
+    const f1 = (Math.round(freqLow * 10) / 10).toFixed(1);
+    const f2 = (Math.round(freqHigh * 10) / 10).toFixed(1);
+    const file = buildRawFileWithBand();
+    const subject = 'Raw WAV – frequency of interest f1:' + f1 + ' f2:' + f2;
+    const body =
+      'Raw WAV file attached.\n' +
+      'Frequency of interest: f1 = ' + f1 + ' Hz, f2 = ' + f2 + ' Hz.\n' +
+      'Filename: ' + file.name;
 
-    if (navigator.share) {
-      try {
-        const payload = { title: 'Raw and filtered WAV', files: files };
-        if (!navigator.canShare || navigator.canShare(payload)) {
-          await navigator.share(payload);
-          setStatus('Both files shared successfully.', 'ok');
-          return;
-        }
-      } catch (err) {
-        if (err.name === 'AbortError') return;
-      }
-    }
-
-    downloadFile(rawFile);
-    downloadFile(filteredFile);
+    downloadFile(file);
     openMailClient(subject, body);
-    setStatus('Both files downloaded. Attach them to the email if needed.', 'ok');
+    setStatus('Email opened to ' + RECIPIENT_EMAIL + '. Attach: ' + file.name, 'ok');
   }
 
   function pickRecordMimeType() {
@@ -1199,7 +1172,7 @@
     updateCursorLabels();
     drawSpectrum();
     btnApply.disabled = false;
-    btnShareBoth.disabled = !(rawFile && filteredData);
+    btnShareBoth.disabled = false;
     setStatus('Audio loaded. Position the cursors and apply the filter.', 'ok');
   }
 
@@ -1234,7 +1207,6 @@
         filteredData = bandpassFilter(monoData, sampleRate, freqLow, freqHigh);
         btnPlay.disabled = false;
         btnSave.disabled = false;
-        btnShareBoth.disabled = false;
         setStatus(
           'Filter applied (' + freqLow.toFixed(1) + ' – ' + freqHigh.toFixed(1) + ' Hz).',
           'ok'
@@ -1398,13 +1370,10 @@
   bindTap(btnPlay, playFiltered);
   bindTap(btnStop, stopPlayback);
   bindTap(btnSave, () => { unlockAudio(); saveFiltered(); });
-  bindTap(btnShareBoth, shareBothFiles);
+  bindTap(btnShareBoth, shareRawWithBand);
   bindTap(btnRecord, startRecording);
   bindTap(btnStopRecord, stopRecording);
-  emailInput.addEventListener('change', saveUserEmail);
   document.querySelector('.file-btn').addEventListener('touchend', unlockAudio, { passive: true });
-
-  loadUserEmail();
 
   window.addEventListener('resize', () => {
     drawSpectrum();
