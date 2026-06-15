@@ -137,7 +137,8 @@
       <input type="text" id="descriptionInput" maxlength="80" placeholder="e.g. engine_idle_test" autocomplete="off">
     </div>
     <p class="hint" style="margin-top:0;">
-      Used as a filename prefix when saving (e.g. <strong>engine_idle_test_recording.wav</strong>).
+      Filename includes date, time and device type
+      (e.g. <strong>engine_idle_test_2026-06-12_15-42-07_Android_recording.wav</strong>).
     </p>
 
     <div class="row">
@@ -284,9 +285,25 @@
     return clean ? clean + '_' : '';
   }
 
+  function detectDeviceType() {
+    const ua = navigator.userAgent;
+    if (/iPad|iPhone|iPod/.test(ua) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
+      return 'iOS';
+    }
+    if (/Android/i.test(ua)) return 'Android';
+    if (/Windows/i.test(ua)) return 'Windows';
+    return 'Other';
+  }
+
   function buildRawFilename() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const date = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    const time = pad(d.getHours()) + '-' + pad(d.getMinutes()) + '-' + pad(d.getSeconds());
+    const device = detectDeviceType();
     const prefix = getDescriptionPrefix();
-    return (prefix || '') + 'recording.wav';
+    return prefix + date + '_' + time + '_' + device + '_recording.wav';
   }
 
   function encodeWav(samples, sr) {
