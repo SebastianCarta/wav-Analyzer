@@ -181,19 +181,18 @@
   </div>
 
   <div class="panel">
-    <h2>Triaxial accelerometer &amp; magnetometer</h2>
+    <h2>Triaxial accelerometer</h2>
     <div class="sensor-rates">
-      <span>Accelerometer: <strong id="accelRateLabel">–</strong></span>
-      <span>Magnetometer: <strong id="magRateLabel">–</strong></span>
+      <span>Sample rate: <strong id="accelRateLabel">–</strong></span>
     </div>
     <p class="hint" style="margin-top:0;">
-      Requires HTTPS and a phone/tablet with motion sensors. Sample rates are measured live during recording.
-      Magnetometer may be unavailable on some devices (especially iOS Safari).
+      Requires HTTPS on a phone or tablet. Uses the highest sampling rate available.
+      On iPhone tap <strong>Allow</strong> when asked for motion access.
     </p>
     <div class="row" style="margin-top:0;">
-      <button id="btnRecordImu" class="record-btn" type="button">Record sensors</button>
-      <button id="btnStopImu" type="button" disabled>Stop sensors</button>
-      <button id="btnSaveImu" type="button" disabled>Save sensors CSV</button>
+      <button id="btnRecordImu" class="record-btn" type="button">Record accelerometer</button>
+      <button id="btnStopImu" type="button" disabled>Stop</button>
+      <button id="btnSaveImu" type="button" disabled>Save accelerometer CSV</button>
     </div>
     <p class="status" id="imuStatus"></p>
     <div class="info" id="imuInfo"></div>
@@ -232,21 +231,22 @@
   let recordStartTime = 0;
   let recordPeak = 0;
 
-  // IMU recording
+  // Accelerometer recording
   let isImuRecording = false;
   let imuStartTime = 0;
   let imuTimer = null;
   let accelRows = [];
-  let magRows = [];
   let accelEstimator = null;
-  let magEstimator = null;
   let accelSensor = null;
-  let magSensor = null;
   let motionHandler = null;
   let accelSource = '';
-  let magSource = '';
-  let magAvailable = false;
   let accelAvailable = false;
+  let accelRequestedHz = 0;
+
+  function isIOSDevice() {
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  }
 
   function setImuStatus(msg, type) {
     const el = $('imuStatus');
@@ -257,51 +257,70 @@
   function createRateEstimator() {
     const intervals = [];
     let lastT = null;
+    let deviceReportedHz = 0;
     return {
-      reset() { intervals.length = 0; lastT = null; },
+      reset() {
+        intervals.length = 0;
+        lastT = null;
+        deviceReportedHz = 0;
+      },
+      setFromInterval(sec) {
+        if (sec > 0 && sec < 2) deviceReportedHz = 1 / sec;
+      },
       add(t) {
         if (lastT !== null) {
           const dt = t - lastT;
-          if (dt > 1 && dt < 2000) {
+          if (dt > 0.5 && dt < 2000) {
             intervals.push(dt);
-            if (intervals.length > 40) intervals.shift();
+            if (intervals.length > 60) intervals.shift();
           }
         }
         lastT = t;
       },
       getHz() {
-        if (intervals.length < 3) return 0;
-        const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
-        return avg > 0 ? 1000 / avg : 0;
+        if (intervals.length >= 3) {
+          const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+          if (avg > 0) return 1000 / avg;
+        }
+        return deviceReportedHz;
       }
     };
   }
 
-  function formatRateHz(hz, available) {
-    if (!available) return '<span class="na">not available</span>';
+  function formatRateHz(hz) {
+    if (!accelAvailable) return '<span class="na">not available</span>';
     if (!hz || hz <= 0) return '–';
     return hz.toFixed(1) + ' Hz';
   }
 
   function updateSensorRateDisplay() {
-    const accelHz = accelEstimator ? accelEstimator.getHz() : 0;
-    const magHz = magEstimator ? magEstimator.getHz() : 0;
-    $('accelRateLabel').innerHTML = formatRateHz(accelHz, accelAvailable);
-    $('magRateLabel').innerHTML = formatRateHz(magHz, magAvailable);
+    const hz = accelEstimator ? accelEstimator.getHz() : 0;
+    let label = formatRateHz(hz);
+    if (accelRequestedHz > 0 && accelSource === 'Accelerometer API') {
+      label += ' <span style="color:#8b9cb3;font-weight:normal;">(requested ' + accelRequestedHz + ' Hz)</span>';
+    }
+    $('accelRateLabel').innerHTML = label;
   }
 
-  async function requestMotionPermission() {
+  async function requestAccelPermissions() {
     if (typeof DeviceMotionEvent !== 'undefined' &&
         typeof DeviceMotionEvent.requestPermission === 'function') {
       const result = await DeviceMotionEvent.requestPermission();
       return result === 'granted';
     }
+    if (navigator.permissions && navigator.permissions.query) {
+      try {
+        const status = await navigator.permissions.query({ name: 'accelerometer' });
+        if (status.state === 'denied') return false;
+      } catch (_) {}
+    }
     return true;
   }
 
   function detectSensorSupport() {
-    accelAvailable = typeof Accelerometer !== 'undefined' || typeof DeviceMotionEvent !== 'undefined';
-    magAvailable = typeof Magnetometer !== 'undefined';
+    accelAvailable = isIOSDevice()
+      ? typeof DeviceMotionEvent !== 'undefined'
+      : typeof Accelerometer !== 'undefined' || typeof DeviceMotionEvent !== 'undefined';
     updateSensorRateDisplay();
   }
 
@@ -309,13 +328,6 @@
     if (!isImuRecording) return;
     accelRows.push({ t, ax, ay, az });
     if (accelEstimator) accelEstimator.add(t);
-    updateSensorRateDisplay();
-  }
-
-  function pushMagSample(t, mx, my, mz) {
-    if (!isImuRecording) return;
-    magRows.push({ t, mx, my, mz });
-    if (magEstimator) magEstimator.add(t);
     updateSensorRateDisplay();
   }
 
@@ -329,11 +341,6 @@
       try { accelSensor.removeEventListener('reading', accelSensor._onReading); } catch (_) {}
       accelSensor = null;
     }
-    if (magSensor) {
-      try { magSensor.stop(); } catch (_) {}
-      try { magSensor.removeEventListener('reading', magSensor._onReading); } catch (_) {}
-      magSensor = null;
-    }
     if (imuTimer) {
       clearInterval(imuTimer);
       imuTimer = null;
@@ -341,123 +348,111 @@
     $('btnRecordImu').classList.remove('recording');
   }
 
-  async function startImuSensors() {
-    accelSource = '';
-    magSource = '';
+  function startDeviceMotion() {
+    motionHandler = (e) => {
+      if (e.interval > 0 && accelEstimator) {
+        accelEstimator.setFromInterval(e.interval);
+      }
+      const acc = (e.acceleration && e.acceleration.x !== null)
+        ? e.acceleration
+        : e.accelerationIncludingGravity;
+      if (!acc || acc.x === null || acc.y === null || acc.z === null) return;
+      const t = performance.now() - imuStartTime;
+      pushAccelSample(t, acc.x, acc.y, acc.z);
+    };
+    window.addEventListener('devicemotion', motionHandler, { passive: true });
+    accelSource = 'DeviceMotion';
+    accelAvailable = true;
+    return true;
+  }
 
-    if (typeof Accelerometer !== 'undefined') {
+  async function tryStartAccelerometerApi() {
+    if (typeof Accelerometer === 'undefined') return false;
+
+    const freqAttempts = [null, 200, 120, 100, 60];
+    for (const freq of freqAttempts) {
       try {
-        accelSensor = new Accelerometer({ frequency: 60 });
+        if (accelSensor) {
+          try { accelSensor.stop(); } catch (_) {}
+          accelSensor = null;
+        }
+        const opts = freq === null ? {} : { frequency: freq };
+        accelSensor = new Accelerometer(opts);
         accelSensor._onReading = () => {
           const t = performance.now() - imuStartTime;
           pushAccelSample(t, accelSensor.x, accelSensor.y, accelSensor.z);
         };
-        accelSensor.addEventListener('reading', accelSensor._onReading);
-        accelSensor.addEventListener('error', (e) => {
-          console.warn('Accelerometer error', e);
+        await new Promise((resolve, reject) => {
+          const onError = (err) => reject(err.error || err);
+          accelSensor.addEventListener('reading', accelSensor._onReading);
+          accelSensor.addEventListener('error', onError, { once: true });
+          accelSensor.start();
+          setTimeout(resolve, 50);
         });
-        await accelSensor.start();
         accelSource = 'Accelerometer API';
+        accelRequestedHz = freq === null ? 0 : freq;
         accelAvailable = true;
-      } catch (e) {
+        return true;
+      } catch (_) {
         accelSensor = null;
-        console.warn('Accelerometer API failed', e);
       }
     }
+    return false;
+  }
 
-    if (!accelSensor && typeof DeviceMotionEvent !== 'undefined') {
-      motionHandler = (e) => {
-        const acc = e.accelerationIncludingGravity || e.acceleration;
-        if (!acc || acc.x === null) return;
-        const t = performance.now() - imuStartTime;
-        pushAccelSample(t, acc.x, acc.y, acc.z);
-      };
-      window.addEventListener('devicemotion', motionHandler);
-      accelSource = 'DeviceMotion';
-      accelAvailable = true;
+  async function startImuSensors() {
+    accelSource = '';
+    accelRequestedHz = 0;
+
+    if (isIOSDevice()) {
+      return startDeviceMotion();
     }
 
-    if (typeof Magnetometer !== 'undefined') {
-      try {
-        magSensor = new Magnetometer({ frequency: 60 });
-        magSensor._onReading = () => {
-          const t = performance.now() - imuStartTime;
-          pushMagSample(t, magSensor.x, magSensor.y, magSensor.z);
-        };
-        magSensor.addEventListener('reading', magSensor._onReading);
-        magSensor.addEventListener('error', (e) => {
-          console.warn('Magnetometer error', e);
-          magAvailable = false;
-          updateSensorRateDisplay();
-        });
-        await magSensor.start();
-        magSource = 'Magnetometer API';
-        magAvailable = true;
-      } catch (e) {
-        magSensor = null;
-        magAvailable = false;
-        console.warn('Magnetometer API failed', e);
-      }
-    } else {
-      magAvailable = false;
+    const apiOk = await tryStartAccelerometerApi();
+    if (apiOk) return true;
+
+    if (typeof DeviceMotionEvent !== 'undefined') {
+      return startDeviceMotion();
     }
 
-    updateSensorRateDisplay();
-    return accelSensor || motionHandler;
+    return false;
   }
 
   function buildImuCsv() {
     const accelHz = accelEstimator ? accelEstimator.getHz() : 0;
-    const magHz = magEstimator ? magEstimator.getHz() : 0;
     const lines = [
-      '# triaxial accelerometer and magnetometer recording',
-      '# accel_source,' + (accelSource || 'none'),
-      '# mag_source,' + (magSource || 'none'),
-      '# accel_sample_rate_hz,' + (accelHz > 0 ? accelHz.toFixed(2) : 'n/a'),
-      '# mag_sample_rate_hz,' + (magHz > 0 ? magHz.toFixed(2) : 'n/a'),
-      '# accel_unit,m/s^2 (including gravity if DeviceMotion)',
-      '# mag_unit,microtesla',
-      'time_ms,sensor,x,y,z'
+      '# triaxial accelerometer recording',
+      '# source,' + (accelSource || 'none'),
+      '# sample_rate_hz,' + (accelHz > 0 ? accelHz.toFixed(2) : 'n/a'),
+      '# unit,m/s^2',
+      'time_ms,ax,ay,az'
     ];
-
-    const events = [];
     for (const r of accelRows) {
-      events.push({ t: r.t, sensor: 'accelerometer', x: r.ax, y: r.ay, z: r.az });
-    }
-    for (const r of magRows) {
-      events.push({ t: r.t, sensor: 'magnetometer', x: r.mx, y: r.my, z: r.mz });
-    }
-    events.sort((a, b) => a.t - b.t);
-
-    for (const e of events) {
       lines.push(
-        e.t.toFixed(3) + ',' + e.sensor + ',' +
-        e.x.toFixed(6) + ',' + e.y.toFixed(6) + ',' + e.z.toFixed(6)
+        r.t.toFixed(3) + ',' +
+        r.ax.toFixed(6) + ',' + r.ay.toFixed(6) + ',' + r.az.toFixed(6)
       );
     }
     return lines.join('\n');
   }
 
   function buildImuFilename() {
-    return getDescriptionPrefix() + 'imu_sensors.csv';
+    return getDescriptionPrefix() + 'accelerometer.csv';
   }
 
   function showImuInfo(durationSec) {
     const accelHz = accelEstimator ? accelEstimator.getHz() : 0;
-    const magHz = magEstimator ? magEstimator.getHz() : 0;
     let html = '<span><strong>Duration:</strong> ' + durationSec.toFixed(2) + ' s</span>';
-    html += '<span><strong>Accelerometer samples:</strong> ' + accelRows.length +
-      (accelHz > 0 ? ' @ ' + accelHz.toFixed(1) + ' Hz' : '') +
+    html += '<span><strong>Samples:</strong> ' + accelRows.length + '</span>';
+    html += '<span><strong>Sample rate:</strong> ' +
+      (accelHz > 0 ? accelHz.toFixed(1) + ' Hz' : 'n/a') +
       (accelSource ? ' (' + accelSource + ')' : '') + '</span>';
-    html += '<span><strong>Magnetometer samples:</strong> ' + magRows.length +
-      (magHz > 0 ? ' @ ' + magHz.toFixed(1) + ' Hz' : '') +
-      (magSource ? ' (' + magSource + ')' : ' (unavailable)') + '</span>';
     $('imuInfo').innerHTML = html;
   }
 
   function saveImuCsv() {
-    if (!accelRows.length && !magRows.length) {
-      setImuStatus('No sensor data to save.', 'error');
+    if (!accelRows.length) {
+      setImuStatus('No accelerometer data to save.', 'error');
       return;
     }
     const csv = buildImuCsv();
@@ -466,7 +461,7 @@
   }
 
   function updateImuButtons() {
-    const hasData = accelRows.length > 0 || magRows.length > 0;
+    const hasData = accelRows.length > 0;
     $('btnRecordImu').disabled = isImuRecording;
     $('btnStopImu').disabled = !isImuRecording;
     $('btnSaveImu').disabled = !hasData || isImuRecording;
@@ -475,23 +470,20 @@
   async function startImuRecording() {
     if (isImuRecording) return;
 
-    const motionOk = await requestMotionPermission();
-    if (!motionOk) {
-      setImuStatus('Motion sensor permission denied.', 'error');
+    const permitted = await requestAccelPermissions();
+    if (!permitted) {
+      setImuStatus('Motion sensor permission denied. Enable it in browser settings.', 'error');
       return;
     }
 
     accelRows = [];
-    magRows = [];
     accelEstimator = createRateEstimator();
-    magEstimator = createRateEstimator();
     detectSensorSupport();
 
     isImuRecording = true;
     imuStartTime = performance.now();
     $('btnRecordImu').classList.add('recording');
     updateImuButtons();
-    updateSensorRateDisplay();
 
     const started = await startImuSensors();
     if (!started) {
@@ -507,16 +499,16 @@
     imuTimer = setInterval(() => {
       const elapsed = (performance.now() - imuStartTime) / 1000;
       const aHz = accelEstimator.getHz();
-      const mHz = magEstimator.getHz();
       setImuStatus(
-        'Recording sensors… ' + elapsed.toFixed(0) + ' s / ' + MAX_DURATION_SEC + ' s | ' +
-        'Accel ' + (aHz > 0 ? aHz.toFixed(1) + ' Hz' : '–') + ', ' +
-        'Mag ' + (magAvailable ? (mHz > 0 ? mHz.toFixed(1) + ' Hz' : '–') : 'n/a')
+        'Recording… ' + elapsed.toFixed(0) + ' s / ' + MAX_DURATION_SEC + ' s | ' +
+        (aHz > 0 ? aHz.toFixed(1) + ' Hz' : 'waiting for data…') +
+        ' | ' + accelRows.length + ' samples'
       );
+      updateSensorRateDisplay();
       if (elapsed >= MAX_DURATION_SEC) stopImuRecording();
-    }, 250);
+    }, 200);
 
-    setImuStatus('Sensor recording started.');
+    setImuStatus('Accelerometer recording started (' + accelSource + ').');
   }
 
   function stopImuRecording() {
@@ -524,11 +516,8 @@
     isImuRecording = false;
     teardownImuSensors();
 
-    const durationSec = accelRows.length || magRows.length
-      ? Math.max(
-          accelRows.length ? accelRows[accelRows.length - 1].t : 0,
-          magRows.length ? magRows[magRows.length - 1].t : 0
-        ) / 1000
+    const durationSec = accelRows.length
+      ? accelRows[accelRows.length - 1].t / 1000
       : 0;
 
     showImuInfo(durationSec);
@@ -536,11 +525,9 @@
     updateImuButtons();
 
     const aHz = accelEstimator ? accelEstimator.getHz() : 0;
-    const mHz = magEstimator ? magEstimator.getHz() : 0;
     setImuStatus(
-      'Sensor recording ready. Accel ' + (aHz > 0 ? aHz.toFixed(1) + ' Hz' : 'n/a') +
-      ', Mag ' + (magAvailable && mHz > 0 ? mHz.toFixed(1) + ' Hz' : 'n/a') +
-      '. Save CSV to download.',
+      'Recording ready (' + durationSec.toFixed(1) + ' s, ' + accelRows.length + ' samples). ' +
+      'Sample rate: ' + (aHz > 0 ? aHz.toFixed(1) + ' Hz' : 'n/a') + '. Save CSV to download.',
       'ok'
     );
   }
@@ -930,7 +917,7 @@
   updateImuButtons();
   updateButtons();
   setStatus('Tap Record to capture audio.');
-  setImuStatus('Tap Record sensors to capture accelerometer and magnetometer.');
+  setImuStatus('Tap Record accelerometer to start.');
 })();
 </script>
 </body>
