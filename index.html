@@ -167,6 +167,7 @@
 
   const MAX_DURATION_SEC = 120;
   const RECORD_CONTEXT_SAMPLE_RATE = 48000;
+  const WAV_BIT_DEPTH = 16;
   const TALLY_FORM_URL = 'https://tally.so/r/obxBqb';
 
   const $ = (id) => document.getElementById(id);
@@ -402,6 +403,8 @@
   function showFileInfo(duration, peakDb, micLabel) {
     let html = '<span><strong>Duration:</strong> ' + duration.toFixed(2) + ' s</span>';
     html += '<span><strong>Sample rate:</strong> ' + sampleRate + ' Hz</span>';
+    html += '<span><strong>Channels:</strong> Mono</span>';
+    html += '<span><strong>Bit depth:</strong> ' + WAV_BIT_DEPTH + '-bit PCM</span>';
     if (peakDb !== undefined) {
       html += '<span><strong>Peak:</strong> ' + peakDb.toFixed(1) + ' dBFS</span>';
     }
