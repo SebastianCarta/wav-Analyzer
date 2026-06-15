@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>WAV Analyzer – FFT & Bandpass Filter</title>
+  <title>WAV Recorder</title>
   <style>
     :root {
       --bg: #0f1419;
@@ -11,10 +11,6 @@
       --border: #2d3a4f;
       --text: #e8edf4;
       --muted: #8b9cb3;
-      --accent: #3b82f6;
-      --accent-hover: #2563eb;
-      --cursor-low: #22c55e;
-      --cursor-high: #ef4444;
       --warn-bg: #422006;
       --warn-border: #b45309;
       --warn-text: #fcd34d;
@@ -26,35 +22,23 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: var(--bg);
       color: var(--text);
-      min-height: 100vh;
-      padding: 12px;
       line-height: 1.5;
+      padding: 12px;
+      max-width: 640px;
+      margin: 0 auto;
     }
 
-    h1 { font-size: 1.25rem; font-weight: 600; margin-bottom: 4px; }
+    h1 { font-size: 1.25rem; margin-bottom: 8px; }
 
-    .subtitle {
-      color: var(--muted);
-      font-size: 0.85rem;
-      margin-bottom: 12px;
-    }
-
-    .limit-banner {
-      display: flex;
-      align-items: center;
-      gap: 10px;
+    .warn-banner {
       background: var(--warn-bg);
       border: 1px solid var(--warn-border);
-      border-radius: 8px;
-      padding: 10px 14px;
-      margin-bottom: 12px;
-      font-size: 0.85rem;
       color: var(--warn-text);
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      margin-bottom: 12px;
     }
-
-    .limit-banner svg { flex-shrink: 0; }
-
-    .limit-banner strong { color: #fef3c7; }
 
     .panel {
       background: var(--surface);
@@ -64,30 +48,33 @@
       margin-bottom: 12px;
     }
 
+    .field {
+      margin-bottom: 12px;
+    }
+
+    .field label {
+      display: block;
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #121a26;
+      color: var(--text);
+      font-size: 0.9rem;
+    }
+
     .row {
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
-      align-items: center;
-    }
-
-    label.file-btn {
-      display: inline-flex;
-      align-items: center;
       gap: 8px;
-      padding: 10px 16px;
-      background: var(--surface);
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 0.9rem;
-      font-weight: 500;
-      transition: background 0.15s;
+      margin-top: 14px;
     }
-
-    label.file-btn:hover { background: #243044; }
-    label.file-btn input { display: none; }
 
     button {
       padding: 10px 16px;
@@ -102,91 +89,7 @@
     }
 
     button:hover:not(:disabled) { background: #243044; }
-    button:disabled { opacity: 0.4; cursor: not-allowed; }
-
-    .field-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      align-items: center;
-      margin-bottom: 10px;
-    }
-
-    .field-row label {
-      font-size: 0.9rem;
-      color: var(--muted);
-      white-space: nowrap;
-    }
-
-    .field-row input {
-      flex: 1;
-      min-width: 180px;
-      padding: 10px 12px;
-      border: 1px solid var(--border);
-      background: var(--bg);
-      color: var(--text);
-      border-radius: 8px;
-      font-size: 0.9rem;
-    }
-
-    .field-row input::placeholder { color: #5c6b80; }
-
-    .field-row input:focus {
-      outline: none;
-      border-color: var(--accent);
-    }
-
-    .info {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 16px;
-      font-size: 0.82rem;
-      color: var(--muted);
-      margin-top: 10px;
-    }
-
-    .info span strong { color: var(--text); }
-
-    .chart-wrap {
-      position: relative;
-      width: 100%;
-      height: 220px;
-      touch-action: none;
-    }
-
-    canvas {
-      display: block;
-      width: 100%;
-      height: 100%;
-      border-radius: 6px;
-      cursor: crosshair;
-    }
-
-    .cursor-legend {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 16px;
-      margin-top: 10px;
-      font-size: 0.85rem;
-    }
-
-    .cursor-legend .dot {
-      display: inline-block;
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      margin-right: 6px;
-      vertical-align: middle;
-    }
-
-    .cursor-legend .low .dot { background: var(--cursor-low); }
-    .cursor-legend .high .dot { background: var(--cursor-high); }
-
-    .hint {
-      font-size: 0.8rem;
-      color: var(--muted);
-      margin-top: 8px;
-    }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
 
     button.record-btn.recording {
       background: #ef4444;
@@ -194,70 +97,64 @@
       color: #fff;
     }
 
-    .status {
+    .hint {
       font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.5;
+      margin-top: 10px;
+    }
+
+    .status {
+      margin-top: 10px;
+      font-size: 0.85rem;
       color: var(--muted);
       min-height: 1.2em;
     }
 
     .status.error { color: #f87171; }
-    .status.ok { color: #4ade80; }
+    .status.ok { color: #86efac; }
 
-    @media (max-width: 480px) {
-      h1 { font-size: 1.1rem; }
-      .chart-wrap { height: 180px; }
+    .info {
+      margin-top: 10px;
+      font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.6;
     }
+
+    .info span { display: block; }
   </style>
 </head>
 <body>
-  <h1>WAV Analyzer – FFT & Bandpass Filter</h1>
-  <p class="subtitle">Load a WAV file, inspect the single-sided spectrum, and apply a bandpass filter between the cursors.</p>
+  <h1>WAV Recorder</h1>
 
-  <div class="limit-banner">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-    </svg>
-    <span>Maximum file duration: <strong>120 seconds</strong>. Longer files will be rejected.</span>
+  <div class="warn-banner">
+    Maximum recording duration: <strong>120 seconds</strong>.
   </div>
 
   <div class="panel">
-    <div class="field-row">
-      <label for="fileDesc">File description</label>
-      <input type="text" id="fileDesc" maxlength="80" placeholder="e.g. engine idle test" autocomplete="off">
+    <div class="field">
+      <label for="descriptionInput">File description (optional)</label>
+      <input type="text" id="descriptionInput" maxlength="80" placeholder="e.g. engine_idle_test" autocomplete="off">
     </div>
-    <p class="hint" style="margin-top:0;margin-bottom:10px;">Optional. Saved WAV files use this text as a filename prefix (e.g. <strong>engine_idle_test_frequency_of_interest_f1_2400_f2_9600.wav</strong>).</p>
+    <p class="hint" style="margin-top:0;">
+      Used as a filename prefix when saving (e.g. <strong>engine_idle_test_recording.wav</strong>).
+    </p>
+
     <div class="row">
-      <label class="file-btn">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        Open WAV file
-        <input type="file" id="fileInput" accept=".wav,audio/wav,audio/x-wav">
-      </label>
-      <button id="btnRecord" class="record-btn">Record (unprocessed)</button>
-      <button id="btnStopRecord" disabled>Stop recording</button>
-      <button id="btnApply" disabled>Apply filter</button>
-      <button id="btnPlay" disabled>Play filtered</button>
-      <button id="btnStop" disabled>Stop listening</button>
-      <button id="btnSaveRaw" disabled>Save raw WAV</button>
-      <button id="btnSave" disabled>Save filtered WAV</button>
-      <button id="btnOpenForm" type="button">Open Google Form</button>
+      <button id="btnRecord" class="record-btn" type="button">Record (unprocessed)</button>
+      <button id="btnStopRecord" type="button" disabled>Stop recording</button>
+      <button id="btnSaveRaw" type="button" disabled>Save raw WAV</button>
+      <button id="btnOpenForm" type="button">Open submission form</button>
     </div>
-    <p class="hint" style="margin-top:8px;">Save the raw WAV, then upload it via the Google Form.</p>
-    <div class="info" id="fileInfo"></div>
-    <p class="status" id="status"></p>
-    <audio id="audioPlayer" playsinline webkit-playsinline preload="none" style="display:none"></audio>
-  </div>
 
-  <div class="panel">
-    <h2 style="font-size:0.95rem;margin-bottom:8px;">FFT Spectrum (single-sided)</h2>
-    <div class="chart-wrap">
-      <canvas id="spectrumCanvas"></canvas>
-    </div>
-    <div class="cursor-legend">
-      <span class="low"><span class="dot"></span>F<sub>low</sub>: <strong id="freqLow">–</strong> Hz</span>
-      <span class="high"><span class="dot"></span>F<sub>high</sub>: <strong id="freqHigh">–</strong> Hz</span>
-      <span>Bandwidth: <strong id="bandWidth">–</strong> Hz</span>
-    </div>
-    <p class="hint">Drag the green (low) and red (high) cursors on the spectrum. On mobile, use your finger.</p>
+    <p class="hint">
+      Recording uses raw PCM on all devices (no codec, AGC/NS/EC off). Save the raw WAV, then upload it via the
+      <a href="https://tally.so/r/obxBqb" target="_blank" rel="noopener noreferrer" style="color:#93c5fd;">Tyche-lab submission form</a>
+      (max 10 MB).
+    </p>
+
+    <p class="status" id="status"></p>
+    <div class="info" id="fileInfo"></div>
   </div>
 
 <script>
@@ -265,710 +162,211 @@
   'use strict';
 
   const MAX_DURATION_SEC = 120;
-  const MAX_FFT_SAMPLES = 262144;
-  const FILTER_CHUNK = 65536;
+  const RECORD_CONTEXT_SAMPLE_RATE = 48000;
+  const TALLY_FORM_URL = 'https://tally.so/r/obxBqb';
 
-  function arrayMax(arr, floor, start) {
-    let max = floor || 0;
-    const i0 = start || 0;
-    for (let i = i0; i < arr.length; i++) {
-      if (arr[i] > max) max = arr[i];
-    }
-    return max;
-  }
-
-  function nextPow2(n) {
-    let p = 1;
-    while (p < n) p <<= 1;
-    return p;
-  }
-
-  function fft(re, im) {
-    const n = re.length;
-    let j = 0;
-    for (let i = 1; i < n; i++) {
-      let bit = n >> 1;
-      for (; j & bit; bit >>= 1) j ^= bit;
-      j ^= bit;
-      if (i < j) {
-        [re[i], re[j]] = [re[j], re[i]];
-        [im[i], im[j]] = [im[j], im[i]];
-      }
-    }
-    for (let len = 2; len <= n; len <<= 1) {
-      const ang = -2 * Math.PI / len;
-      const wRe = Math.cos(ang);
-      const wIm = Math.sin(ang);
-      for (let i = 0; i < n; i += len) {
-        let curRe = 1, curIm = 0;
-        for (let k = 0; k < len / 2; k++) {
-          const uRe = re[i + k], uIm = im[i + k];
-          const vRe = re[i + k + len / 2] * curRe - im[i + k + len / 2] * curIm;
-          const vIm = re[i + k + len / 2] * curIm + im[i + k + len / 2] * curRe;
-          re[i + k] = uRe + vRe;
-          im[i + k] = uIm + vIm;
-          re[i + k + len / 2] = uRe - vRe;
-          im[i + k + len / 2] = uIm - vIm;
-          const tmpRe = curRe * wRe - curIm * wIm;
-          curIm = curRe * wIm + curIm * wRe;
-          curRe = tmpRe;
-        }
-      }
-    }
-  }
-
-  function ifft(re, im) {
-    for (let i = 0; i < im.length; i++) im[i] = -im[i];
-    fft(re, im);
-    const n = re.length;
-    for (let i = 0; i < n; i++) {
-      re[i] /= n;
-      im[i] = -im[i] / n;
-    }
-  }
-
-  function hannWindow(n) {
-    const w = new Float32Array(n);
-    if (n === 1) { w[0] = 1; return w; }
-    for (let i = 0; i < n; i++) w[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (n - 1)));
-    return w;
-  }
-
-  function toMono(buffer) {
-    if (buffer.numberOfChannels === 1) return buffer.getChannelData(0).slice();
-    const len = buffer.length;
-    const mono = new Float32Array(len);
-    for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
-      const data = buffer.getChannelData(ch);
-      for (let i = 0; i < len; i++) mono[i] += data[i];
-    }
-    const scale = 1 / buffer.numberOfChannels;
-    for (let i = 0; i < len; i++) mono[i] *= scale;
-    return mono;
-  }
-
-  function extractSegment(signal, maxSamples) {
-    if (signal.length <= maxSamples) return { data: signal, segment: false };
-    const start = Math.floor((signal.length - maxSamples) / 2);
-    return { data: signal.subarray(start, start + maxSamples), segment: true };
-  }
-
-  function computeSingleSidedFFT(signal, sampleRate) {
-    const { data, segment } = extractSegment(signal, MAX_FFT_SAMPLES);
-    const n = nextPow2(data.length);
-    const re = new Float32Array(n);
-    const im = new Float32Array(n);
-    const win = hannWindow(data.length);
-
-    let mean = 0;
-    for (let i = 0; i < data.length; i++) mean += data[i];
-    mean /= data.length;
-
-    for (let i = 0; i < data.length; i++) re[i] = (data[i] - mean) * win[i];
-
-    fft(re, im);
-
-    const half = Math.floor(n / 2) + 1;
-    const freqs = new Float32Array(half);
-    const mags = new Float32Array(half);
-    const binHz = sampleRate / n;
-
-    for (let k = 0; k < half; k++) {
-      freqs[k] = k * binHz;
-      const mag = Math.sqrt(re[k] * re[k] + im[k] * im[k]);
-      mags[k] = k === 0 || k === n / 2 ? mag / n : (2 * mag / n);
-    }
-
-    return { freqs, mags, fftSize: n, binHz, segment };
-  }
-
-  function linearFreqTicks(nyquist, targetCount) {
-    const raw = nyquist / targetCount;
-    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
-    const norm = raw / mag;
-    let step = mag;
-    if (norm > 5) step = 10 * mag;
-    else if (norm > 2) step = 5 * mag;
-    else if (norm > 1) step = 2 * mag;
-
-    const ticks = [0];
-    for (let f = step; f < nyquist; f += step) ticks.push(f);
-    ticks.push(nyquist);
-    return ticks;
-  }
-
-  function mirrorPad(signal, padLen) {
-    const len = signal.length;
-    const padded = new Float32Array(len + 2 * padLen);
-    for (let i = 0; i < padLen; i++) {
-      padded[padLen - 1 - i] = signal[i];
-      padded[padLen + len + i] = signal[len - 1 - i];
-    }
-    for (let i = 0; i < len; i++) padded[padLen + i] = signal[i];
-    return padded;
-  }
-
-  function smoothBandpassGain(k, kLow, kHigh, transBins) {
-    if (transBins <= 0) return (k >= kLow && k <= kHigh) ? 1 : 0;
-    if (k < kLow - transBins || k > kHigh + transBins) return 0;
-    if (k >= kLow && k <= kHigh) return 1;
-    if (k < kLow) {
-      const x = (k - (kLow - transBins)) / transBins;
-      return 0.5 * (1 - Math.cos(Math.PI * x));
-    }
-    const x = ((kHigh + transBins) - k) / transBins;
-    return 0.5 * (1 - Math.cos(Math.PI * x));
-  }
-
-  function computeFilterPadLen(sampleRate, fLow, fHigh, signalLen) {
-    const bandwidth = Math.max(fHigh - fLow, 1);
-    const settle = Math.ceil(Math.max(
-      (sampleRate / Math.max(fLow, 1)) * 2,
-      (sampleRate / bandwidth) * 2
-    ));
-    return Math.min(Math.floor(signalLen / 2), Math.max(64, settle));
-  }
-
-  function computeTransientFadeSamples(sampleRate, fLow, fHigh, signalLen) {
-    return computeFilterPadLen(sampleRate, fLow, fHigh, signalLen);
-  }
-
-  function applyEdgeFade(signal, fadeLen) {
-    if (fadeLen < 1 || signal.length <= fadeLen * 2) return signal;
-    const out = new Float32Array(signal);
-    for (let i = 0; i < fadeLen; i++) {
-      const g = 0.5 * (1 - Math.cos(Math.PI * (i + 1) / (fadeLen + 1)));
-      out[i] *= g;
-      out[out.length - 1 - i] *= g;
-    }
-    return out;
-  }
-
-  function bandpassFilterDirect(signal, sampleRate, fLow, fHigh) {
-    const padLen = computeFilterPadLen(sampleRate, fLow, fHigh, signal.length);
-    const padded = mirrorPad(signal, padLen);
-    const n = nextPow2(padded.length);
-    const re = new Float32Array(n);
-    const im = new Float32Array(n);
-
-    for (let i = 0; i < padded.length; i++) re[i] = padded[i];
-
-    fft(re, im);
-
-    const binWidth = sampleRate / n;
-    const kLow = Math.ceil(fLow / binWidth);
-    const kHigh = Math.floor(fHigh / binWidth);
-    const transHz = Math.max(binWidth * 4, Math.min((fHigh - fLow) * 0.08, 250));
-    const transBins = Math.max(2, Math.ceil(transHz / binWidth));
-
-    for (let k = 0; k < n; k++) {
-      const kPos = k <= n / 2 ? k : n - k;
-      const gain = smoothBandpassGain(kPos, kLow, kHigh, transBins);
-      re[k] *= gain;
-      im[k] *= gain;
-    }
-
-    ifft(re, im);
-
-    const out = new Float32Array(signal.length);
-    for (let i = 0; i < signal.length; i++) out[i] = re[i + padLen];
-    return out;
-  }
-
-  function bandpassFilter(signal, sampleRate, fLow, fHigh) {
-    let out;
-
-    if (signal.length <= FILTER_CHUNK) {
-      out = bandpassFilterDirect(signal, sampleRate, fLow, fHigh);
-    } else {
-      const N = FILTER_CHUNK;
-      const hop = N >> 1;
-      const win = hannWindow(N);
-      out = new Float32Array(signal.length);
-      const norm = new Float32Array(signal.length);
-
-      for (let start = 0; start < signal.length; start += hop) {
-        const chunk = new Float32Array(N);
-        const valid = Math.min(N, signal.length - start);
-        for (let i = 0; i < valid; i++) chunk[i] = signal[start + i] * win[i];
-
-        const filtered = bandpassFilterDirect(chunk, sampleRate, fLow, fHigh);
-        for (let i = 0; i < valid; i++) {
-          const w = win[i];
-          out[start + i] += filtered[i] * w;
-          norm[start + i] += w * w;
-        }
-      }
-
-      for (let i = 0; i < out.length; i++) {
-        if (norm[i] > 1e-10) out[i] /= norm[i];
-      }
-    }
-
-    const fadeLen = computeTransientFadeSamples(sampleRate, fLow, fHigh, signal.length);
-    return applyEdgeFade(out, fadeLen);
-  }
-
-  function encodeWAV(samples, sampleRate, numChannels) {
-    const buffer = new ArrayBuffer(44 + samples.length * 2);
-    const view = new DataView(buffer);
-    const writeStr = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
-
-    writeStr(0, 'RIFF');
-    view.setUint32(4, 36 + samples.length * 2, true);
-    writeStr(8, 'WAVE');
-    writeStr(12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, numChannels, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * numChannels * 2, true);
-    view.setUint16(32, numChannels * 2, true);
-    view.setUint16(34, 16, true);
-    writeStr(36, 'data');
-    view.setUint32(40, samples.length * 2, true);
-
-    let offset = 44;
-    for (let i = 0; i < samples.length; i++) {
-      const s = Math.max(-1, Math.min(1, samples[i]));
-      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-      offset += 2;
-    }
-    return new Blob([buffer], { type: 'audio/wav' });
-  }
+  const $ = (id) => document.getElementById(id);
+  const statusEl = $('status');
+  const fileInfoEl = $('fileInfo');
+  const descriptionInput = $('descriptionInput');
 
   let audioCtx = null;
-  let sourceBuffer = null;
   let monoData = null;
   let sampleRate = 0;
-  let spectrum = null;
-  let filteredData = null;
-  let rawFile = null;
-  let recordingActive = false;
+
+  let isRecording = false;
   let recordStream = null;
   let recordSource = null;
   let recordProcessor = null;
   let recordWorklet = null;
-  let recordGain = null;
-  let mediaRecorder = null;
-  let recordChunks = [];
-  let recordUseMediaRecorder = false;
-  let recordPeak = 0;
+  let recordSilentGain = null;
+  let recordMicSettings = null;
   let recordSamples = [];
   let recordSampleRate = 0;
   let recordTimer = null;
-  let playingSource = null;
-  let playbackUrl = null;
-  let audioUnlocked = false;
-  let freqLow = 0;
-  let freqHigh = 0;
-  let dragging = null;
-
-  const $ = id => document.getElementById(id);
-  const fileInput = $('fileInput');
-  const fileDescInput = $('fileDesc');
-  const btnApply = $('btnApply');
-  const btnPlay = $('btnPlay');
-  const btnStop = $('btnStop');
-  const btnSave = $('btnSave');
-  const btnSaveRaw = $('btnSaveRaw');
-  const btnOpenForm = $('btnOpenForm');
-  const btnRecord = $('btnRecord');
-  const btnStopRecord = $('btnStopRecord');
-  const fileInfo = $('fileInfo');
-  const status = $('status');
-  const spectrumCanvas = $('spectrumCanvas');
-  const freqLowEl = $('freqLow');
-  const freqHighEl = $('freqHigh');
-  const bandWidthEl = $('bandWidth');
-  const audioPlayer = $('audioPlayer');
+  let recordStartTime = 0;
+  let recordPeak = 0;
 
   function setStatus(msg, type) {
-    status.textContent = msg;
-    status.className = 'status' + (type ? ' ' + type : '');
+    statusEl.textContent = msg;
+    statusEl.className = 'status' + (type ? ' ' + type : '');
   }
 
   function getAudioContext() {
     if (!audioCtx) {
       const Ctx = window.AudioContext || window.webkitAudioContext;
-      audioCtx = new Ctx();
+      try {
+        audioCtx = new Ctx({ sampleRate: RECORD_CONTEXT_SAMPLE_RATE, latencyHint: 'interactive' });
+      } catch (_) {
+        audioCtx = new Ctx();
+      }
     }
     return audioCtx;
   }
 
-  function unlockAudio() {
-    if (audioUnlocked) return;
-    const ctx = getAudioContext();
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-    try {
-      const buf = ctx.createBuffer(1, 1, 22050);
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      src.connect(ctx.destination);
-      src.start(0);
-      src.stop(0);
-    } catch (_) {}
-    audioUnlocked = true;
+  function buildMicConstraints() {
+    return {
+      audio: {
+        channelCount: { ideal: 1 },
+        sampleRate: { ideal: RECORD_CONTEXT_SAMPLE_RATE },
+        echoCancellation: { ideal: false },
+        noiseSuppression: { ideal: false },
+        autoGainControl: { ideal: false },
+        voiceIsolation: { ideal: false },
+        googEchoCancellation: false,
+        googAutoGainControl: false,
+        googNoiseSuppression: false,
+        googHighpassFilter: false
+      }
+    };
   }
 
-  function revokePlaybackUrl() {
-    if (playbackUrl) {
-      URL.revokeObjectURL(playbackUrl);
-      playbackUrl = null;
+  function configureRawMicStream(stream) {
+    recordMicSettings = null;
+    const track = stream.getAudioTracks()[0];
+    if (!track) return;
+    track.applyConstraints({
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false
+    }).catch(() => {});
+    const settings = track.getSettings();
+    recordMicSettings = {
+      echoCancellation: settings.echoCancellation,
+      noiseSuppression: settings.noiseSuppression,
+      autoGainControl: settings.autoGainControl,
+      sampleRate: settings.sampleRate,
+      channelCount: settings.channelCount
+    };
+  }
+
+  function formatMicSettings(settings) {
+    if (!settings) return '';
+    const fmt = (v) => (v === true ? 'on' : v === false ? 'off' : '?');
+    return 'Mic AGC ' + fmt(settings.autoGainControl) +
+      ', NS ' + fmt(settings.noiseSuppression) +
+      ', EC ' + fmt(settings.echoCancellation);
+  }
+
+  function ensureRecordSilentSink(ctx) {
+    if (!recordSilentGain) {
+      recordSilentGain = ctx.createGain();
+      recordSilentGain.gain.value = 0;
+      recordSilentGain.connect(ctx.destination);
     }
+    return recordSilentGain;
   }
 
-  function resizeCanvas(canvas) {
-    const rect = canvas.parentElement.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.floor(rect.width * dpr);
-    canvas.height = Math.floor(rect.height * dpr);
-    const ctx = canvas.getContext('2d');
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    return { ctx, w: rect.width, h: rect.height };
+  function arrayMax(arr) {
+    let max = 0;
+    for (let i = 0; i < arr.length; i += 32) {
+      const v = Math.abs(arr[i]);
+      if (v > max) max = v;
+    }
+    return max;
   }
-
-  function freqToX(freq, w, nyquist) {
-    if (nyquist <= 0) return 0;
-    return (freq / nyquist) * w;
-  }
-
-  function xToFreq(x, w, nyquist) {
-    return Math.max(0, Math.min(nyquist, (x / w) * nyquist));
-  }
-
-  const DBFS_MIN_AMP = 1e-10;
-  const DBFS_FLOOR = -120;
-  const DBFS_SPAN = 80;
-  const DBFS_BOTTOM_MARGIN = 6;
 
   function linAmpToDbFS(amp) {
-    if (amp <= 0) return DBFS_FLOOR;
-    return 20 * Math.log10(Math.max(amp, DBFS_MIN_AMP));
+    if (amp <= 0) return -120;
+    return 20 * Math.log10(Math.max(amp, 1e-10));
   }
 
-  function buildColumnAmps(mags, binHz, nyquist, pxCount) {
-    const colDbFS = new Float32Array(pxCount);
-    let maxDb = -Infinity;
-    let minDb = Infinity;
-
-    for (let px = 0; px < pxCount; px++) {
-      const f0 = (px / pxCount) * nyquist;
-      const f1 = ((px + 1) / pxCount) * nyquist;
-      const k0 = Math.max(1, Math.floor(f0 / binHz));
-      const k1 = Math.min(mags.length - 1, Math.max(k0, Math.ceil(f1 / binHz) - 1));
-      let amp = 0;
-      for (let k = k0; k <= k1; k++) {
-        if (mags[k] > amp) amp = mags[k];
-      }
-      const db = linAmpToDbFS(amp);
-      colDbFS[px] = db;
-      if (amp > 0) {
-        if (db > maxDb) maxDb = db;
-        if (db < minDb) minDb = db;
-      }
-    }
-
-    if (!isFinite(maxDb)) maxDb = DBFS_FLOOR;
-
-    return { colDbFS, maxDb, minDb };
+  function getDescriptionPrefix() {
+    const raw = descriptionInput.value.trim();
+    if (!raw) return '';
+    const clean = raw.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_\-]/g, '').slice(0, 60);
+    return clean ? clean + '_' : '';
   }
 
-  function computeDbRange(maxDb, minDb) {
-    const dbMargin = 20 * Math.log10(1.1);
-    let bottomDb = Math.max(DBFS_FLOOR, maxDb - DBFS_SPAN);
-    if (isFinite(minDb) && minDb < bottomDb) {
-      bottomDb = Math.max(DBFS_FLOOR, minDb - DBFS_BOTTOM_MARGIN);
-    }
-    const topDb = Math.max(maxDb + dbMargin, bottomDb + 20);
-    return { topDb, bottomDb, dbRange: topDb - bottomDb };
+  function buildRawFilename() {
+    const prefix = getDescriptionPrefix();
+    return (prefix || '') + 'recording.wav';
   }
 
-  function drawSpectrum() {
-    if (!spectrum) return;
-    const { ctx, w, h } = resizeCanvas(spectrumCanvas);
-    const { mags, binHz } = spectrum;
-    const nyquist = sampleRate / 2;
-    const isNarrow = w < 500;
-    const pad = { l: 52, r: 12, t: 12, b: isNarrow ? 50 : 42 };
-    const plotW = w - pad.l - pad.r;
-    const plotH = h - pad.t - pad.b;
-    const freqTickY = pad.t + plotH + 14;
-    const freqTitleY = pad.t + plotH + (isNarrow ? 38 : 32);
-
-    ctx.fillStyle = '#121a26';
-    ctx.fillRect(0, 0, w, h);
-
-    const pxCount = Math.floor(plotW);
-    const { colDbFS, maxDb, minDb } = buildColumnAmps(mags, binHz, nyquist, pxCount);
-    const { topDb, bottomDb, dbRange } = computeDbRange(maxDb, minDb);
-
-    ctx.strokeStyle = '#2d3a4f';
-    ctx.lineWidth = 1;
-    ctx.font = '11px sans-serif';
-    ctx.fillStyle = '#8b9cb3';
-
-    function formatDbFS(db) {
-      return db.toFixed(1);
+  function encodeWav(samples, sr) {
+    const numSamples = samples.length;
+    const buffer = new ArrayBuffer(44 + numSamples * 2);
+    const view = new DataView(buffer);
+    const writeStr = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + numSamples * 2, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sr, true);
+    view.setUint32(28, sr * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeStr(36, 'data');
+    view.setUint32(40, numSamples * 2, true);
+    let offset = 44;
+    for (let i = 0; i < numSamples; i++) {
+      const s = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      offset += 2;
     }
-
-    function formatFreq(f) {
-      if (f === 0) return '0';
-      if (f >= 1000) return (f / 1000).toFixed(f >= 10000 ? 0 : 1) + 'k';
-      return String(Math.round(f));
-    }
-
-    for (let t = 0; t <= 4; t++) {
-      const frac = t / 4;
-      const y = pad.t + plotH - frac * plotH;
-      ctx.beginPath();
-      ctx.moveTo(pad.l, y);
-      ctx.lineTo(pad.l + plotW, y);
-      ctx.stroke();
-      const labelY = frac === 0 ? y - 4 : y + 4;
-      ctx.fillText(formatDbFS(bottomDb + frac * dbRange), 4, labelY);
-    }
-
-    const gridFreqs = linearFreqTicks(nyquist, 6);
-    for (const f of gridFreqs) {
-      const x = pad.l + freqToX(f, plotW, nyquist);
-      ctx.beginPath();
-      ctx.moveTo(x, pad.t);
-      ctx.lineTo(x, pad.t + plotH);
-      ctx.stroke();
-      const label = formatFreq(f);
-      const labelW = ctx.measureText(label).width;
-      ctx.fillText(label, Math.min(Math.max(pad.l, x - labelW / 2), pad.l + plotW - labelW), freqTickY);
-    }
-
-    ctx.fillStyle = '#60a5fa';
-    for (let px = 0; px < pxCount; px++) {
-      const db = Math.max(bottomDb, Math.min(topDb, colDbFS[px]));
-      const norm = (db - bottomDb) / dbRange;
-      if (norm <= 0) continue;
-      const barH = Math.max(1, norm * plotH);
-      ctx.fillRect(pad.l + px, pad.t + plotH - barH, 1, barH);
-    }
-
-    const xLow = pad.l + freqToX(freqLow, plotW, nyquist);
-    const xHigh = pad.l + freqToX(freqHigh, plotW, nyquist);
-    ctx.fillStyle = 'rgba(245, 158, 11, 0.15)';
-    ctx.fillRect(xLow, pad.t, xHigh - xLow, plotH);
-
-    function drawCursor(x, color, label) {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(x, pad.t);
-      ctx.lineTo(x, pad.t + plotH);
-      ctx.stroke();
-      ctx.fillStyle = color;
-      ctx.font = 'bold 11px sans-serif';
-      ctx.fillText(label, x + 4, pad.t + 14);
-    }
-    drawCursor(xLow, '#22c55e', 'LOW');
-    drawCursor(xHigh, '#ef4444', 'HIGH');
-
-    ctx.fillStyle = '#8b9cb3';
-    ctx.font = '11px sans-serif';
-    ctx.save();
-    ctx.translate(10, pad.t + plotH / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.fillText('dBFS', -18, 0);
-    ctx.restore();
-    ctx.textAlign = 'center';
-    ctx.fillText('Frequency (Hz) – linear scale', pad.l + plotW / 2, freqTitleY);
-    ctx.textAlign = 'left';
-
-    spectrumCanvas._plot = { pad, plotW, plotH, nyquist };
+    return new Blob([buffer], { type: 'audio/wav' });
   }
 
-  function updateCursorLabels() {
-    freqLowEl.textContent = freqLow.toFixed(1);
-    freqHighEl.textContent = freqHigh.toFixed(1);
-    bandWidthEl.textContent = Math.max(0, freqHigh - freqLow).toFixed(1);
-  }
-
-  function stopPlayback() {
-    if (playingSource) {
-      try { playingSource.stop(); } catch (_) {}
-      playingSource = null;
-    }
-    audioPlayer.pause();
-    audioPlayer.currentTime = 0;
-    audioPlayer.removeAttribute('src');
-    revokePlaybackUrl();
-    btnPlay.disabled = !filteredData;
-    btnStop.disabled = true;
-  }
-
-  const GOOGLE_FORM_URL =
-    'https://docs.google.com/forms/d/e/1FAIpQLSfpwUusmB8_fSUt-bHFXSwm1Ri0QsVkHeCYZpW7yB4kl6evsQ/viewform?usp=publish-editor';
-
-  function downloadFile(file) {
-    const url = URL.createObjectURL(file);
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = file.name || 'audio.wav';
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
 
-  function formatFreqLabel(f) {
-    return (Math.round(f * 10) / 10).toString().replace('.', 'p');
+  function updateButtons() {
+    const hasAudio = !!monoData;
+    $('btnRecord').disabled = isRecording;
+    $('btnStopRecord').disabled = !isRecording;
+    $('btnSaveRaw').disabled = !hasAudio || isRecording;
   }
 
-  function sanitizeFilenamePrefix(text) {
-    if (!text) return '';
-    return text
-      .trim()
-      .replace(/[^\w\s\-]/g, '')
-      .replace(/\s+/g, '_')
-      .replace(/_+/g, '_')
-      .replace(/^_|_$/g, '')
-      .slice(0, 60);
-  }
-
-  function getDescriptionPrefix() {
-    const prefix = sanitizeFilenamePrefix(fileDescInput.value);
-    return prefix ? prefix + '_' : '';
-  }
-
-  function buildRawFileName() {
-    const f1 = formatFreqLabel(freqLow);
-    const f2 = formatFreqLabel(freqHigh);
-    return getDescriptionPrefix() + 'frequency_of_interest_f1_' + f1 + '_f2_' + f2 + '.wav';
-  }
-
-  function buildFilteredFileName() {
-    const f1 = formatFreqLabel(freqLow);
-    const f2 = formatFreqLabel(freqHigh);
-    return getDescriptionPrefix() + 'filtered_f1_' + f1 + '_f2_' + f2 + '.wav';
-  }
-
-  function buildRawFileWithBand() {
-    const name = buildRawFileName();
-    const blob = encodeWAV(monoData, sampleRate, 1);
-    return new File([blob], name, { type: 'audio/wav', lastModified: Date.now() });
+  function showFileInfo(duration, peakDb, micLabel) {
+    let html = '<span><strong>Duration:</strong> ' + duration.toFixed(2) + ' s</span>';
+    html += '<span><strong>Sample rate:</strong> ' + sampleRate + ' Hz</span>';
+    if (peakDb !== undefined) {
+      html += '<span><strong>Peak:</strong> ' + peakDb.toFixed(1) + ' dBFS</span>';
+    }
+    if (micLabel) {
+      html += '<span><strong>Recording:</strong> ' + micLabel + '</span>';
+    }
+    fileInfoEl.innerHTML = html;
   }
 
   function saveRaw() {
-    if (!monoData) {
-      setStatus('No raw audio loaded.', 'error');
-      return;
+    if (!monoData) return;
+    const filename = buildRawFilename();
+    downloadBlob(encodeWav(monoData, sampleRate), filename);
+    setStatus('Raw WAV saved: ' + filename, 'ok');
+  }
+
+  function mergeRecordSamples() {
+    let total = 0;
+    for (const chunk of recordSamples) total += chunk.length;
+    const merged = new Float32Array(total);
+    let off = 0;
+    for (const chunk of recordSamples) {
+      merged.set(chunk, off);
+      off += chunk.length;
     }
-    if (freqLow >= freqHigh) {
-      setStatus('Low frequency must be less than high frequency.', 'error');
-      return;
-    }
-    const file = buildRawFileWithBand();
-    downloadFile(file);
-    setStatus('Raw file saved: ' + file.name, 'ok');
-  }
-
-  function openGoogleForm() {
-    window.open(GOOGLE_FORM_URL, '_blank', 'noopener,noreferrer');
-  }
-
-  function pickRecordMimeType() {
-    const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/aac'];
-    for (const t of types) {
-      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) return t;
-    }
-    return '';
-  }
-
-  function buildMicConstraints() {
-    return {
-      audio: {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false
-      }
-    };
-  }
-
-  function setRecordingUi(active) {
-    btnRecord.disabled = active;
-    btnRecord.classList.toggle('recording', active);
-    btnStopRecord.disabled = !active;
-    fileInput.disabled = active;
-  }
-
-  function pushRecordedChunk(float32) {
-    if (!recordingActive || !float32 || !float32.length) return;
-    recordSamples.push(new Float32Array(float32));
-    for (let i = 0; i < float32.length; i += 32) {
-      const v = Math.abs(float32[i]);
-      if (v > recordPeak) recordPeak = v;
-    }
-  }
-
-  function monoFromInputBuffer(input) {
-    const ch0 = input.getChannelData(0);
-    const mono = new Float32Array(ch0.length);
-    if (input.numberOfChannels > 1) {
-      const ch1 = input.getChannelData(1);
-      for (let i = 0; i < ch0.length; i++) mono[i] = 0.5 * (ch0[i] + ch1[i]);
-    } else {
-      mono.set(ch0);
-    }
-    return mono;
-  }
-
-  async function setupRecordWorklet(ctx) {
-    const code = `
-      class RecorderProcessor extends AudioWorkletProcessor {
-        process(inputs) {
-          const input = inputs[0];
-          if (!input || !input[0] || input[0].length === 0) return true;
-          const ch0 = input[0];
-          const mono = new Float32Array(ch0.length);
-          if (input.length > 1 && input[1]) {
-            const ch1 = input[1];
-            for (let i = 0; i < ch0.length; i++) mono[i] = 0.5 * (ch0[i] + ch1[i]);
-          } else {
-            mono.set(ch0);
-          }
-          this.port.postMessage(mono.buffer, [mono.buffer]);
-          return true;
-        }
-      }
-      registerProcessor('recorder-processor', RecorderProcessor);
-    `;
-    const url = URL.createObjectURL(new Blob([code], { type: 'application/javascript' }));
-    await ctx.audioWorklet.addModule(url);
-    URL.revokeObjectURL(url);
-    recordWorklet = new AudioWorkletNode(ctx, 'recorder-processor');
-    recordWorklet.port.onmessage = e => {
-      if (e.data) pushRecordedChunk(new Float32Array(e.data));
-    };
-  }
-
-  function setupRecordScriptProcessor(ctx, inputChannels) {
-    const chIn = Math.max(1, Math.min(2, inputChannels || 2));
-    recordProcessor = ctx.createScriptProcessor(4096, chIn, 1);
-    recordProcessor.onaudioprocess = e => {
-      pushRecordedChunk(monoFromInputBuffer(e.inputBuffer));
-    };
+    return merged;
   }
 
   function teardownRecordNodes() {
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      try { mediaRecorder.stop(); } catch (_) {}
-    }
-    mediaRecorder = null;
-    recordChunks = [];
-    recordUseMediaRecorder = false;
     if (recordWorklet) {
-      recordWorklet.port.onmessage = null;
+      try { recordWorklet.port.onmessage = null; } catch (_) {}
       try { recordWorklet.disconnect(); } catch (_) {}
       recordWorklet = null;
     }
     if (recordProcessor) {
-      recordProcessor.onaudioprocess = null;
+      try { recordProcessor.onaudioprocess = null; } catch (_) {}
       try { recordProcessor.disconnect(); } catch (_) {}
       recordProcessor = null;
     }
@@ -976,459 +374,145 @@
       try { recordSource.disconnect(); } catch (_) {}
       recordSource = null;
     }
-    if (recordGain) {
-      try { recordGain.disconnect(); } catch (_) {}
-      recordGain = null;
-    }
     if (recordStream) {
-      recordStream.getTracks().forEach(t => t.stop());
+      recordStream.getTracks().forEach((t) => t.stop());
       recordStream = null;
     }
-  }
-
-  function mergeRecordedSamples() {
-    const totalLen = recordSamples.reduce((sum, chunk) => sum + chunk.length, 0);
-    const mono = new Float32Array(totalLen);
-    let offset = 0;
-    for (const chunk of recordSamples) {
-      mono.set(chunk, offset);
-      offset += chunk.length;
-    }
-    recordSamples = [];
-    return mono;
-  }
-
-  async function loadRecordingBuffer(buffer, fileName) {
-    const mono = toMono(buffer);
-    const wavBlob = encodeWAV(mono, buffer.sampleRate, 1);
-    const file = new File([wavBlob], fileName, { type: 'audio/wav' });
-    await loadFromBuffer(buffer, fileName, file);
-  }
-
-  async function finalizeMediaRecording() {
-    const recorder = mediaRecorder;
-    const mimeType = recorder ? recorder.mimeType : 'audio/webm';
-    return new Promise((resolve, reject) => {
-      if (!recorder || recorder.state === 'inactive') {
-        reject(new Error('Recorder not active'));
-        return;
-      }
-      recorder.onstop = async () => {
-        try {
-          const blob = new Blob(recordChunks, { type: mimeType });
-          recordChunks = [];
-          if (blob.size < 64) {
-            reject(new Error('No audio data captured'));
-            return;
-          }
-          const ctx = getAudioContext();
-          const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
-          resolve(decoded);
-        } catch (err) {
-          reject(err);
-        }
-      };
-      try { recorder.requestData(); } catch (_) {}
-      recorder.stop();
-    });
-  }
-
-  async function finalizeRecording() {
     if (recordTimer) {
       clearInterval(recordTimer);
       recordTimer = null;
     }
-    recordingActive = false;
-    setRecordingUi(false);
-
-    try {
-      let buffer;
-
-      if (recordUseMediaRecorder && mediaRecorder) {
-        buffer = await finalizeMediaRecording();
-        if (recordStream) {
-          recordStream.getTracks().forEach(t => t.stop());
-          recordStream = null;
-        }
-        mediaRecorder = null;
-      } else {
-        const mono = mergeRecordedSamples();
-        teardownRecordNodes();
-        if (!mono.length) {
-          setStatus('Recording empty. Check the microphone and try again.', 'error');
-          return;
-        }
-        if (recordPeak < 1e-8) {
-          setStatus('Recording is silent. Check the microphone in system settings.', 'error');
-          return;
-        }
-        let trimmed = mono;
-        const durationSec = trimmed.length / recordSampleRate;
-        if (durationSec > MAX_DURATION_SEC) {
-          trimmed = trimmed.subarray(0, Math.floor(MAX_DURATION_SEC * recordSampleRate));
-        }
-        const ctx = getAudioContext();
-        buffer = ctx.createBuffer(1, trimmed.length, recordSampleRate);
-        buffer.copyToChannel(trimmed, 0);
-      }
-
-      if (!buffer || buffer.duration < 0.05) {
-        setStatus('Recording too short or empty. Try again.', 'error');
-        teardownRecordNodes();
-        return;
-      }
-
-      teardownRecordNodes();
-      await loadRecordingBuffer(buffer, 'recording_unprocessed.wav');
-      setStatus('Unprocessed recording loaded.', 'ok');
-    } catch (err) {
-      teardownRecordNodes();
-      setStatus('Recording failed: ' + err.message, 'error');
-      console.error(err);
-    }
+    $('btnRecord').classList.remove('recording');
   }
 
-  function stopRecording() {
-    if (!recordingActive) {
-      teardownRecordNodes();
-      setRecordingUi(false);
-      return;
-    }
-    finalizeRecording();
+  function onPcmChunk(mono) {
+    if (!isRecording) return;
+    recordSamples.push(new Float32Array(mono));
+    const peak = arrayMax(mono);
+    if (peak > recordPeak) recordPeak = peak;
   }
 
   async function startPcmRecording(ctx, stream) {
-    recordUseMediaRecorder = false;
-    recordSampleRate = ctx.sampleRate;
     recordSource = ctx.createMediaStreamSource(stream);
-    const settings = stream.getAudioTracks()[0]?.getSettings?.() || {};
-    const inputChannels = settings.channelCount || 2;
+    const sink = ensureRecordSilentSink(ctx);
+    recordSampleRate = ctx.sampleRate;
+    recordSamples = [];
+    recordPeak = 0;
 
+    const workletCode =
+      'class PcmCaptureProcessor extends AudioWorkletProcessor {' +
+      'process(inputs){const input=inputs[0];if(!input||!input[0])return true;' +
+      'const ch0=input[0],ch1=input[1],len=ch0.length,mono=new Float32Array(len);' +
+      'for(let i=0;i<len;i++)mono[i]=ch1?(ch0[i]+ch1[i])*0.5:ch0[i];' +
+      'this.port.postMessage(mono);return true;}}' +
+      "registerProcessor('pcm-capture',PcmCaptureProcessor);";
+
+    let workletOk = false;
     if (ctx.audioWorklet) {
       try {
-        await setupRecordWorklet(ctx);
+        const blob = new Blob([workletCode], { type: 'application/javascript' });
+        const url = URL.createObjectURL(blob);
+        await ctx.audioWorklet.addModule(url);
+        URL.revokeObjectURL(url);
+        recordWorklet = new AudioWorkletNode(ctx, 'pcm-capture');
+        recordWorklet.port.onmessage = (e) => onPcmChunk(e.data);
         recordSource.connect(recordWorklet);
-        recordWorklet.connect(ctx.destination);
-        return;
-      } catch (workletErr) {
-        console.warn('AudioWorklet failed, using ScriptProcessor.', workletErr);
+        recordWorklet.connect(sink);
+        workletOk = true;
+      } catch (_) {
+        recordWorklet = null;
       }
     }
 
-    setupRecordScriptProcessor(ctx, inputChannels);
-    recordSource.connect(recordProcessor);
-    recordProcessor.connect(ctx.destination);
+    if (!workletOk) {
+      recordProcessor = ctx.createScriptProcessor(4096, 2, 1);
+      recordProcessor.onaudioprocess = (e) => {
+        const inL = e.inputBuffer.getChannelData(0);
+        const inR = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : inL;
+        const mono = new Float32Array(inL.length);
+        for (let i = 0; i < inL.length; i++) mono[i] = (inL[i] + inR[i]) * 0.5;
+        onPcmChunk(mono);
+      };
+      recordSource.connect(recordProcessor);
+      recordProcessor.connect(sink);
+    }
+  }
+
+  function updateRecordStatus() {
+    const elapsed = Math.min(MAX_DURATION_SEC, (Date.now() - recordStartTime) / 1000);
+    const db = linAmpToDbFS(recordPeak);
+    const samples = recordSamples.reduce((n, c) => n + c.length, 0);
+    const level = samples > 0 ? db.toFixed(1) + ' dBFS' : 'no signal yet';
+    setStatus('Recording… ' + elapsed.toFixed(0) + ' s / ' + MAX_DURATION_SEC + ' s | ' + level);
+    if (elapsed >= MAX_DURATION_SEC) stopRecording();
   }
 
   async function startRecording() {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setStatus('Microphone not supported on this device.', 'error');
-      return;
-    }
-
-    unlockAudio();
-    stopPlayback();
-    if (recordingActive) stopRecording();
-
-    teardownRecordNodes();
-    recordSamples = [];
-    recordChunks = [];
-    recordPeak = 0;
-
+    if (isRecording) return;
     try {
       const ctx = getAudioContext();
       await ctx.resume();
-
       recordStream = await navigator.mediaDevices.getUserMedia(buildMicConstraints());
-      const mimeType = pickRecordMimeType();
-
-      recordingActive = true;
-      setRecordingUi(true);
-
-      if (mimeType && typeof MediaRecorder !== 'undefined') {
-        recordUseMediaRecorder = true;
-        mediaRecorder = new MediaRecorder(recordStream, { mimeType: mimeType });
-        recordChunks = [];
-        mediaRecorder.ondataavailable = e => {
-          if (e.data && e.data.size > 0) recordChunks.push(e.data);
-        };
-        mediaRecorder.start(200);
-      } else {
-        await startPcmRecording(ctx, recordStream);
-      }
-
-      const startTime = Date.now();
-      recordTimer = setInterval(() => {
-        const elapsed = (Date.now() - startTime) / 1000;
-        let extra = '';
-        if (recordUseMediaRecorder) {
-          const bytes = recordChunks.reduce((s, c) => s + c.size, 0);
-          extra = bytes > 0 ? (bytes / 1024).toFixed(1) + ' KB captured' : 'waiting for data…';
-        } else {
-          extra = recordPeak > 0
-            ? (20 * Math.log10(recordPeak)).toFixed(1) + ' dBFS'
-            : (recordSamples.length ? 'chunks: ' + recordSamples.length : 'no signal');
-        }
-        setStatus('Recording… ' + elapsed.toFixed(0) + ' s / ' + MAX_DURATION_SEC + ' s | ' + extra, 'ok');
-        if (elapsed >= MAX_DURATION_SEC) stopRecording();
-      }, 250);
-    } catch (err) {
-      recordingActive = false;
+      configureRawMicStream(recordStream);
+      isRecording = true;
+      recordStartTime = Date.now();
+      $('btnRecord').classList.add('recording');
+      updateButtons();
+      await startPcmRecording(ctx, recordStream);
+      recordTimer = setInterval(updateRecordStatus, 200);
+      setStatus('Recording started (raw PCM, AGC/NS/EC off).');
+    } catch (e) {
+      isRecording = false;
       teardownRecordNodes();
-      setRecordingUi(false);
-      setStatus('Microphone access denied or unavailable.', 'error');
-      console.error(err);
+      updateButtons();
+      setStatus('Microphone access failed: ' + (e.message || e), 'error');
     }
   }
 
-  async function loadFromBuffer(decoded, displayName, fileRef) {
-    stopRecording();
-    stopPlayback();
-    setStatus('Loading…');
-    btnApply.disabled = true;
-    btnPlay.disabled = true;
-    btnSave.disabled = true;
-    btnSaveRaw.disabled = true;
-    filteredData = null;
-    rawFile = fileRef;
-    spectrum = null;
-    monoData = null;
-
-    if (decoded.duration > MAX_DURATION_SEC) {
-      setStatus(
-        'Audio rejected: duration is ' + decoded.duration.toFixed(1) +
-        ' s. Maximum allowed is ' + MAX_DURATION_SEC + ' s.',
-        'error'
-      );
-      fileInfo.innerHTML = '';
-      fileInput.value = '';
-      rawFile = null;
+  async function finalizeRecording() {
+    const merged = mergeRecordSamples();
+    if (!merged.length) {
+      setStatus('Recording empty — no audio captured.', 'error');
+      updateButtons();
       return;
     }
 
-    sourceBuffer = decoded;
-    sampleRate = sourceBuffer.sampleRate;
-    monoData = toMono(sourceBuffer);
-    spectrum = computeSingleSidedFFT(monoData, sampleRate);
-
-    const nyquist = sampleRate / 2;
-    freqLow = nyquist * 0.1;
-    freqHigh = nyquist * 0.4;
-
-    fileInfo.innerHTML =
-      '<span><strong>File:</strong> ' + escapeHtml(displayName) + '</span>' +
-      '<span><strong>Sample rate:</strong> ' + sampleRate + ' Hz</span>' +
-      '<span><strong>Duration:</strong> ' + sourceBuffer.duration.toFixed(2) + ' s</span>' +
-      '<span><strong>Samples:</strong> ' + monoData.length.toLocaleString() + '</span>' +
-      '<span><strong>Channels:</strong> ' + sourceBuffer.numberOfChannels + '</span>';
-
-    updateCursorLabels();
-    drawSpectrum();
-    btnApply.disabled = false;
-    btnSaveRaw.disabled = false;
-    setStatus('Audio loaded. Position the cursors and apply the filter.', 'ok');
-  }
-
-  async function loadFile(file) {
-    try {
-      const ctx = getAudioContext();
-      if (ctx.state === 'suspended') await ctx.resume();
-      const decoded = await ctx.decodeAudioData(await file.arrayBuffer());
-      await loadFromBuffer(decoded, file.name, file);
-    } catch (err) {
-      setStatus('Error: ' + err.message, 'error');
-      console.error(err);
+    let trimmed = merged;
+    const sr = recordSampleRate || getAudioContext().sampleRate;
+    const durationSec = trimmed.length / sr;
+    if (durationSec > MAX_DURATION_SEC) {
+      trimmed = trimmed.subarray(0, Math.floor(MAX_DURATION_SEC * sr));
     }
+
+    monoData = trimmed;
+    sampleRate = sr;
+    const peakDb = linAmpToDbFS(recordPeak);
+    const micLabel = formatMicSettings(recordMicSettings);
+    showFileInfo(trimmed.length / sr, peakDb, micLabel);
+    setStatus(
+      'Recording ready (' + (trimmed.length / sr).toFixed(1) + ' s). Peak ' +
+      peakDb.toFixed(1) + ' dBFS. ' + micLabel + '. Save the WAV and upload via the form.',
+      'ok'
+    );
+    updateButtons();
   }
 
-  function escapeHtml(s) {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  async function stopRecording() {
+    if (!isRecording) return;
+    isRecording = false;
+    teardownRecordNodes();
+    await finalizeRecording();
   }
 
-  function applyFilter() {
-    if (!monoData) return;
-    if (freqLow >= freqHigh) {
-      setStatus('Low frequency must be less than high frequency.', 'error');
-      return;
-    }
-    stopPlayback();
-    btnApply.disabled = true;
-    setStatus('Filtering… (this may take a moment for long files)');
-
-    setTimeout(() => {
-      try {
-        filteredData = bandpassFilter(monoData, sampleRate, freqLow, freqHigh);
-        btnPlay.disabled = false;
-        btnSave.disabled = false;
-        setStatus(
-          'Filter applied (' + freqLow.toFixed(1) + ' – ' + freqHigh.toFixed(1) + ' Hz).',
-          'ok'
-        );
-      } catch (err) {
-        setStatus('Error: ' + err.message, 'error');
-        console.error(err);
-      } finally {
-        btnApply.disabled = false;
-      }
-    }, 30);
-  }
-
-  function playFiltered() {
-    if (!filteredData) return;
-    unlockAudio();
-    stopPlayback();
-
-    try {
-      const blob = encodeWAV(filteredData, sampleRate, 1);
-      playbackUrl = URL.createObjectURL(blob);
-      audioPlayer.src = playbackUrl;
-      audioPlayer.onended = () => {
-        btnStop.disabled = true;
-        btnPlay.disabled = false;
-        setStatus('Playback finished.', 'ok');
-      };
-      audioPlayer.onerror = () => {
-        setStatus('Playback failed on this device.', 'error');
-        btnStop.disabled = true;
-        btnPlay.disabled = false;
-      };
-
-      const playPromise = audioPlayer.play();
-      if (playPromise && playPromise.catch) {
-        playPromise.catch(err => {
-          setStatus('Playback failed: ' + err.message, 'error');
-          btnPlay.disabled = false;
-          btnStop.disabled = true;
-        });
-      }
-
-      btnPlay.disabled = true;
-      btnStop.disabled = false;
-      setStatus('Playing filtered audio…', 'ok');
-    } catch (err) {
-      setStatus('Playback failed: ' + err.message, 'error');
-      console.error(err);
-    }
-  }
-
-  function saveFiltered() {
-    if (!filteredData) return;
-    if (freqLow >= freqHigh) {
-      setStatus('Low frequency must be less than high frequency.', 'error');
-      return;
-    }
-    const name = buildFilteredFileName();
-    const blob = encodeWAV(filteredData, sampleRate, 1);
-    downloadFile(new File([blob], name, { type: 'audio/wav' }));
-    setStatus('Filtered file saved: ' + name, 'ok');
-  }
-
-  function getPointerPos(e) {
-    const rect = spectrumCanvas.getBoundingClientRect();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    return clientX - rect.left;
-  }
-
-  function hitTest(x) {
-    const plot = spectrumCanvas._plot;
-    if (!plot) return null;
-    const { pad, plotW, nyquist } = plot;
-    const xLow = pad.l + freqToX(freqLow, plotW, nyquist);
-    const xHigh = pad.l + freqToX(freqHigh, plotW, nyquist);
-    const threshold = 20;
-    if (Math.abs(x - xLow) < threshold) return 'low';
-    if (Math.abs(x - xHigh) < threshold) return 'high';
-    return null;
-  }
-
-  function moveCursor(which, x) {
-    const plot = spectrumCanvas._plot;
-    if (!plot) return;
-    const { pad, plotW, nyquist } = plot;
-    const relX = Math.max(0, Math.min(plotW, x - pad.l));
-    const freq = xToFreq(relX, plotW, nyquist);
-
-    if (which === 'low') freqLow = Math.min(freq, freqHigh - 1);
-    else freqHigh = Math.max(freq, freqLow + 1);
-
-    updateCursorLabels();
-    drawSpectrum();
-  }
-
-  function onPointerDown(e) {
-    if (!spectrum) return;
-    e.preventDefault();
-    const x = getPointerPos(e);
-    dragging = hitTest(x);
-    if (!dragging) {
-      const plot = spectrumCanvas._plot;
-      if (!plot) return;
-      const { pad, plotW, nyquist } = plot;
-      const relX = x - pad.l;
-      if (relX < 0 || relX > plotW) return;
-      const freq = xToFreq(relX, plotW, nyquist);
-      if (Math.abs(freq - freqLow) < Math.abs(freq - freqHigh)) {
-        dragging = 'low';
-        freqLow = Math.min(freq, freqHigh - 1);
-      } else {
-        dragging = 'high';
-        freqHigh = Math.max(freq, freqLow + 1);
-      }
-      updateCursorLabels();
-      drawSpectrum();
-    }
-  }
-
-  function onPointerDownMove(e) {
-    if (!dragging) return;
-    e.preventDefault();
-    moveCursor(dragging, getPointerPos(e));
-  }
-
-  function onPointerUp() { dragging = null; }
-
-  spectrumCanvas.addEventListener('mousedown', onPointerDown);
-  spectrumCanvas.addEventListener('mousemove', onPointerDownMove);
-  window.addEventListener('mouseup', onPointerUp);
-  spectrumCanvas.addEventListener('touchstart', onPointerDown, { passive: false });
-  spectrumCanvas.addEventListener('touchmove', onPointerDownMove, { passive: false });
-  window.addEventListener('touchend', onPointerUp);
-
-  fileInput.addEventListener('change', e => {
-    unlockAudio();
-    const file = e.target.files[0];
-    if (file) loadFile(file);
+  $('btnRecord').addEventListener('click', startRecording);
+  $('btnStopRecord').addEventListener('click', stopRecording);
+  $('btnSaveRaw').addEventListener('click', saveRaw);
+  $('btnOpenForm').addEventListener('click', () => {
+    window.open(TALLY_FORM_URL, '_blank', 'noopener,noreferrer');
   });
 
-  function bindTap(el, handler) {
-    let lastFire = 0;
-    const run = () => {
-      const now = Date.now();
-      if (now - lastFire < 400) return;
-      lastFire = now;
-      handler();
-    };
-    if (window.PointerEvent) {
-      el.addEventListener('pointerup', run);
-    } else {
-      el.addEventListener('click', run);
-      el.addEventListener('touchend', e => { e.preventDefault(); run(); }, { passive: false });
-    }
-  }
-
-  bindTap(btnApply, () => { unlockAudio(); applyFilter(); });
-  bindTap(btnPlay, playFiltered);
-  bindTap(btnStop, stopPlayback);
-  bindTap(btnSave, () => { unlockAudio(); saveFiltered(); });
-  bindTap(btnSaveRaw, () => { unlockAudio(); saveRaw(); });
-  bindTap(btnOpenForm, openGoogleForm);
-  bindTap(btnRecord, startRecording);
-  bindTap(btnStopRecord, stopRecording);
-  document.querySelector('.file-btn').addEventListener('touchend', unlockAudio, { passive: true });
-
-  window.addEventListener('resize', () => {
-    drawSpectrum();
-  });
+  updateButtons();
+  setStatus('Tap Record to capture audio.');
 })();
 </script>
 </body>
