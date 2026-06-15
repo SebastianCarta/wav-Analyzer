@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>WAV Recorder</title>
+  <title>Tyche-lab audio recorder</title>
   <style>
     :root {
       --bg: #0f1419;
@@ -59,7 +59,8 @@
       margin-bottom: 6px;
     }
 
-    input[type="text"] {
+    input[type="text"],
+    select {
       width: 100%;
       padding: 10px 12px;
       border-radius: 8px;
@@ -67,6 +68,18 @@
       background: #121a26;
       color: var(--text);
       font-size: 0.9rem;
+    }
+
+    select { cursor: pointer; }
+
+    .guide-image {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      margin-bottom: 12px;
+      background: #fff;
     }
 
     .row {
@@ -121,24 +134,58 @@
       line-height: 1.6;
     }
 
+    .disclaimer {
+      font-size: 0.82rem;
+      color: var(--muted);
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }
+
     .info span { display: block; }
   </style>
 </head>
 <body>
-  <h1>WAV Recorder</h1>
+  <h1>Tyche-lab audio recorder</h1>
+
+  <p class="disclaimer">
+    This application runs entirely in your browser (e.g. Chrome). It does not require an internet connection
+    and does not retain any of your data. Data is only shared if you choose to email your audio recording—in
+    that case, only the file you attach is shared. The app uses your device's computational resources.
+    Internet is only needed to load the page initially. Once loaded, recording works offline. No audio is stored
+    or transmitted unless you save it locally or attach it to an email yourself.
+  </p>
 
   <div class="warn-banner">
     Maximum recording duration: <strong>120 seconds</strong>.
   </div>
 
   <div class="panel">
+    <img
+      src="recording-distances.png"
+      alt="Recording distances: 10 cm / 4 in and 1 m / 40 in from the sound source"
+      class="guide-image"
+    >
+    <p class="hint" style="margin-top:0;">
+      Two recordings are necessary to ensure that the sound comes from the hypothesized source. The first must be
+      made at <strong>4 in / 10 cm</strong> and the second at <strong>40 in / 1 m</strong>.
+    </p>
+    <div class="field" style="margin-bottom:0;">
+      <label for="distanceSelect">Recording distance (added to filename)</label>
+      <select id="distanceSelect">
+        <option value="10cm_4in">10 cm / 4 in — first recording (close)</option>
+        <option value="1m_40in">1 m / 40 in — second recording (far)</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="panel">
     <div class="field">
       <label for="descriptionInput">File description (optional)</label>
-      <input type="text" id="descriptionInput" maxlength="80" placeholder="e.g. engine_idle_test" autocomplete="off">
+      <input type="text" id="descriptionInput" maxlength="80" placeholder="e.g. induction motor drive end" autocomplete="off">
     </div>
     <p class="hint" style="margin-top:0;">
-      Filename includes date, time and device type
-      (e.g. <strong>engine_idle_test_2026-06-12_15-42-07_Android_recording.wav</strong>).
+      Filename includes description, distance, local date/time, UTC offset, and device type
+      (e.g. <strong>induction_motor_drive_end_10cm_4in_2026-06-12_15-42-07_+2_Android_recording.wav</strong>).
     </p>
 
     <div class="row">
@@ -146,14 +193,13 @@
       <button id="btnStopRecord" type="button" disabled>Stop recording</button>
       <button id="btnPlay" type="button" disabled>Play recording</button>
       <button id="btnStop" type="button" disabled>Stop listening</button>
-      <button id="btnSaveRaw" type="button" disabled>Save raw WAV</button>
-      <button id="btnOpenForm" type="button">Open submission form</button>
+      <button id="btnSaveRaw" type="button" disabled>Save audio</button>
     </div>
 
     <p class="hint">
-      Recording uses raw PCM on all devices (no codec, AGC/NS/EC off). Save the raw WAV, then upload it via the
-      <a href="https://tally.so/r/obxBqb" target="_blank" rel="noopener noreferrer" style="color:#93c5fd;">Tyche-lab submission form</a>
-      (max 10 MB).
+      Recording uses raw PCM on all devices (no codec, AGC/NS/EC off). Save audio, then send an email to
+      <a href="mailto:sebastian.carta@tyche-lab.com" style="color:#93c5fd;">sebastian.carta@tyche-lab.com</a>
+      — attach your recordings/photos.
     </p>
 
     <p class="status" id="status"></p>
@@ -168,12 +214,12 @@
   const MAX_DURATION_SEC = 120;
   const RECORD_CONTEXT_SAMPLE_RATE = 48000;
   const WAV_BIT_DEPTH = 16;
-  const TALLY_FORM_URL = 'https://tally.so/r/obxBqb';
 
   const $ = (id) => document.getElementById(id);
   const statusEl = $('status');
   const fileInfoEl = $('fileInfo');
   const descriptionInput = $('descriptionInput');
+  const distanceSelect = $('distanceSelect');
   const audioPlayer = $('audioPlayer');
 
   let audioCtx = null;
@@ -286,6 +332,11 @@
     return clean ? clean + '_' : '';
   }
 
+  function getDistancePrefix() {
+    const value = distanceSelect.value;
+    return value ? value + '_' : '';
+  }
+
   function detectDeviceType() {
     const ua = navigator.userAgent;
     if (/iPad|iPhone|iPod/.test(ua) ||
@@ -297,14 +348,31 @@
     return 'Other';
   }
 
+  function formatLocalTimestamp(d) {
+    const pad = (n) => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + '_' +
+      pad(d.getHours()) + '-' + pad(d.getMinutes()) + '-' + pad(d.getSeconds());
+  }
+
+  function formatTimezoneOffset(d) {
+    const pad = (n) => String(n).padStart(2, '0');
+    const offsetMin = -d.getTimezoneOffset();
+    const sign = offsetMin >= 0 ? '+' : '-';
+    const absMin = Math.abs(offsetMin);
+    const hours = Math.floor(absMin / 60);
+    const mins = absMin % 60;
+    if (mins === 0) return sign + hours;
+    return sign + hours + '_' + pad(mins);
+  }
+
   function buildRawFilename() {
     const d = new Date();
-    const pad = (n) => String(n).padStart(2, '0');
-    const date = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
-    const time = pad(d.getHours()) + '-' + pad(d.getMinutes()) + '-' + pad(d.getSeconds());
+    const local = formatLocalTimestamp(d);
+    const tz = formatTimezoneOffset(d);
     const device = detectDeviceType();
     const prefix = getDescriptionPrefix();
-    return prefix + date + '_' + time + '_' + device + '_recording.wav';
+    const distance = getDistancePrefix();
+    return prefix + distance + local + '_' + tz + '_' + device + '_recording.wav';
   }
 
   function encodeWav(samples, sr) {
@@ -418,7 +486,7 @@
     if (!monoData) return;
     const filename = buildRawFilename();
     downloadBlob(encodeWav(monoData, sampleRate), filename);
-    setStatus('Raw WAV saved: ' + filename, 'ok');
+    setStatus('Audio saved: ' + filename, 'ok');
   }
 
   function mergeRecordSamples() {
@@ -566,7 +634,7 @@
     showFileInfo(trimmed.length / sr, peakDb, micLabel);
     setStatus(
       'Recording ready (' + (trimmed.length / sr).toFixed(1) + ' s). Peak ' +
-      peakDb.toFixed(1) + ' dBFS. ' + micLabel + '. Save the WAV and upload via the form.',
+      peakDb.toFixed(1) + ' dBFS. ' + micLabel + '. Save audio and email it to sebastian.carta@tyche-lab.com.',
       'ok'
     );
     updateButtons();
@@ -587,9 +655,6 @@
     setStatus('Playback stopped.');
   });
   $('btnSaveRaw').addEventListener('click', saveRaw);
-  $('btnOpenForm').addEventListener('click', () => {
-    window.open(TALLY_FORM_URL, '_blank', 'noopener,noreferrer');
-  });
 
   updateButtons();
   setStatus('Tap Record to capture audio.');
