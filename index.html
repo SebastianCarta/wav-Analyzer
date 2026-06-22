@@ -142,6 +142,16 @@
     }
 
     .info span { display: block; }
+
+    .audio-device {
+      margin-top: 0;
+      margin-bottom: 10px;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+
+    .audio-device strong { color: var(--text); }
+    .audio-device.usb strong { color: #86efac; }
   </style>
 </head>
 <body>
@@ -184,9 +194,11 @@
       <input type="text" id="descriptionInput" maxlength="80" placeholder="e.g. induction motor drive end" autocomplete="off">
     </div>
     <p class="hint" style="margin-top:0;">
-      Filename includes description, distance, local date/time, UTC offset, and device type
-      (e.g. <strong>induction_motor_drive_end_10cm_4in_2026-06-12_15-42-07_+2_Android_recording.wav</strong>).
+      Filename includes description, distance, audio input name, local date/time, UTC offset, and device type
+      (e.g. <strong>induction_motor_drive_end_10cm_4in_USB_PnP_Sound_Device_2026-06-12_15-42-07_+2_Android_recording.wav</strong>).
     </p>
+
+    <p class="audio-device" id="audioDeviceLabel">Audio input: not selected yet</p>
 
     <div class="row">
       <button id="btnRecord" class="record-btn" type="button">Record (unprocessed)</button>
@@ -220,6 +232,7 @@
   const fileInfoEl = $('fileInfo');
   const descriptionInput = $('descriptionInput');
   const distanceSelect = $('distanceSelect');
+  const audioDeviceLabelEl = $('audioDeviceLabel');
   const audioPlayer = $('audioPlayer');
 
   let audioCtx = null;
@@ -240,6 +253,8 @@
   let recordTimer = null;
   let recordStartTime = 0;
   let recordPeak = 0;
+  let recordAudioDeviceName = '';
+  let recordUsingUsb = false;
 
   function setStatus(msg, type) {
     statusEl.textContent = msg;
@@ -258,21 +273,102 @@
     return audioCtx;
   }
 
-  function buildMicConstraints() {
-    return {
-      audio: {
-        channelCount: { ideal: 1 },
-        sampleRate: { ideal: RECORD_CONTEXT_SAMPLE_RATE },
-        echoCancellation: { ideal: false },
-        noiseSuppression: { ideal: false },
-        autoGainControl: { ideal: false },
-        voiceIsolation: { ideal: false },
-        googEchoCancellation: false,
-        googAutoGainControl: false,
-        googNoiseSuppression: false,
-        googHighpassFilter: false
-      }
+  function buildMicConstraints(deviceId) {
+    const audio = {
+      channelCount: { ideal: 1 },
+      sampleRate: { ideal: RECORD_CONTEXT_SAMPLE_RATE },
+      echoCancellation: { ideal: false },
+      noiseSuppression: { ideal: false },
+      autoGainControl: { ideal: false },
+      voiceIsolation: { ideal: false },
+      googEchoCancellation: false,
+      googAutoGainControl: false,
+      googNoiseSuppression: false,
+      googHighpassFilter: false
     };
+    if (deviceId) audio.deviceId = { exact: deviceId };
+    return { audio };
+  }
+
+  const USB_AUDIO_RE = /\busb\b|uac\d|usb[\s_-]?audio|usb headset|usb microphone|usb device|usbaudio|android\.hardware\.usb/i;
+
+  function isUsbAudioDevice(deviceOrLabel) {
+    const label = typeof deviceOrLabel === 'string'
+      ? deviceOrLabel
+      : (deviceOrLabel && deviceOrLabel.label) || '';
+    return USB_AUDIO_RE.test(label);
+  }
+
+  async function enumerateAudioInputs() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices.filter((d) => d.kind === 'audioinput');
+  }
+
+  function pickPreferredAudioInput(devices) {
+    const usbDevices = devices.filter((d) => isUsbAudioDevice(d));
+    if (usbDevices.length) return { device: usbDevices[0], isUsb: true };
+    const labeled = devices.find((d) => d.label);
+    return { device: labeled || devices[0] || null, isUsb: false };
+  }
+
+  function getStreamDeviceLabel(stream, deviceInfo) {
+    const track = stream.getAudioTracks()[0];
+    if (track && track.label) return track.label;
+    if (deviceInfo && deviceInfo.label) return deviceInfo.label;
+    return 'Built-in microphone';
+  }
+
+  async function acquireRecordStream() {
+    let permissionStream;
+    try {
+      permissionStream = await navigator.mediaDevices.getUserMedia(buildMicConstraints());
+    } catch (e) {
+      throw e;
+    }
+
+    const inputs = await enumerateAudioInputs();
+    const preferred = pickPreferredAudioInput(inputs);
+    const activeTrack = permissionStream.getAudioTracks()[0];
+    const activeId = activeTrack && activeTrack.getSettings().deviceId;
+
+    if (preferred.device && preferred.device.deviceId && preferred.device.deviceId !== activeId) {
+      permissionStream.getTracks().forEach((t) => t.stop());
+      try {
+        const usbStream = await navigator.mediaDevices.getUserMedia(
+          buildMicConstraints(preferred.device.deviceId)
+        );
+        const label = getStreamDeviceLabel(usbStream, preferred.device);
+        return { stream: usbStream, label, isUsb: true };
+      } catch (_) {
+        permissionStream = await navigator.mediaDevices.getUserMedia(buildMicConstraints());
+      }
+    }
+
+    const label = getStreamDeviceLabel(permissionStream, preferred.device);
+    const isUsb = preferred.isUsb || isUsbAudioDevice(label);
+    return { stream: permissionStream, label, isUsb };
+  }
+
+  function sanitizeDeviceName(name) {
+    const clean = String(name || 'unknown_mic')
+      .replace(/\s+/g, '_')
+      .replace(/[^a-zA-Z0-9_\-]/g, '')
+      .slice(0, 40);
+    return clean || 'unknown_mic';
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function setAudioDeviceLabel(name, isUsb) {
+    const suffix = isUsb ? ' (USB, preferred)' : '';
+    audioDeviceLabelEl.innerHTML = '<strong>Audio input:</strong> ' + escapeHtml(name) + suffix;
+    audioDeviceLabelEl.className = 'audio-device' + (isUsb ? ' usb' : '');
   }
 
   function configureRawMicStream(stream) {
@@ -337,6 +433,11 @@
     return value ? value + '_' : '';
   }
 
+  function getAudioDevicePrefix() {
+    if (!recordAudioDeviceName) return '';
+    return sanitizeDeviceName(recordAudioDeviceName) + '_';
+  }
+
   function detectDeviceType() {
     const ua = navigator.userAgent;
     if (/iPad|iPhone|iPod/.test(ua) ||
@@ -372,7 +473,8 @@
     const device = detectDeviceType();
     const prefix = getDescriptionPrefix();
     const distance = getDistancePrefix();
-    return prefix + distance + local + '_' + tz + '_' + device + '_recording.wav';
+    const audioDevice = getAudioDevicePrefix();
+    return prefix + distance + audioDevice + local + '_' + tz + '_' + device + '_recording.wav';
   }
 
   function encodeWav(samples, sr) {
@@ -468,16 +570,20 @@
     $('btnSaveRaw').disabled = !hasAudio || isRecording || isPlaying;
   }
 
-  function showFileInfo(duration, peakDb, micLabel) {
+  function showFileInfo(duration, peakDb, micLabel, audioDeviceName, isUsb) {
     let html = '<span><strong>Duration:</strong> ' + duration.toFixed(2) + ' s</span>';
     html += '<span><strong>Sample rate:</strong> ' + sampleRate + ' Hz</span>';
     html += '<span><strong>Channels:</strong> Mono</span>';
     html += '<span><strong>Bit depth:</strong> ' + WAV_BIT_DEPTH + '-bit PCM</span>';
+    if (audioDeviceName) {
+      html += '<span><strong>Audio input:</strong> ' + escapeHtml(audioDeviceName) +
+        (isUsb ? ' (USB)' : '') + '</span>';
+    }
     if (peakDb !== undefined) {
       html += '<span><strong>Peak:</strong> ' + peakDb.toFixed(1) + ' dBFS</span>';
     }
     if (micLabel) {
-      html += '<span><strong>Recording:</strong> ' + micLabel + '</span>';
+      html += '<span><strong>Mic processing:</strong> ' + micLabel + '</span>';
     }
     fileInfoEl.innerHTML = html;
   }
@@ -585,7 +691,10 @@
     const db = linAmpToDbFS(recordPeak);
     const samples = recordSamples.reduce((n, c) => n + c.length, 0);
     const level = samples > 0 ? db.toFixed(1) + ' dBFS' : 'no signal yet';
-    setStatus('Recording… ' + elapsed.toFixed(0) + ' s / ' + MAX_DURATION_SEC + ' s | ' + level);
+    const inputLabel = recordAudioDeviceName
+      ? ' | ' + recordAudioDeviceName + (recordUsingUsb ? ' (USB)' : '')
+      : '';
+    setStatus('Recording… ' + elapsed.toFixed(0) + ' s / ' + MAX_DURATION_SEC + ' s | ' + level + inputLabel);
     if (elapsed >= MAX_DURATION_SEC) stopRecording();
   }
 
@@ -595,7 +704,11 @@
     try {
       const ctx = getAudioContext();
       await ctx.resume();
-      recordStream = await navigator.mediaDevices.getUserMedia(buildMicConstraints());
+      const { stream, label, isUsb } = await acquireRecordStream();
+      recordStream = stream;
+      recordAudioDeviceName = label;
+      recordUsingUsb = isUsb;
+      setAudioDeviceLabel(label, isUsb);
       configureRawMicStream(recordStream);
       isRecording = true;
       recordStartTime = Date.now();
@@ -603,7 +716,8 @@
       updateButtons();
       await startPcmRecording(ctx, recordStream);
       recordTimer = setInterval(updateRecordStatus, 200);
-      setStatus('Recording started (raw PCM, AGC/NS/EC off).');
+      const usbNote = isUsb ? ' USB audio input selected.' : ' Using built-in microphone (no USB audio detected).';
+      setStatus('Recording started (raw PCM, AGC/NS/EC off).' + usbNote);
     } catch (e) {
       isRecording = false;
       teardownRecordNodes();
@@ -631,9 +745,10 @@
     sampleRate = sr;
     const peakDb = linAmpToDbFS(recordPeak);
     const micLabel = formatMicSettings(recordMicSettings);
-    showFileInfo(trimmed.length / sr, peakDb, micLabel);
+    showFileInfo(trimmed.length / sr, peakDb, micLabel, recordAudioDeviceName, recordUsingUsb);
     setStatus(
-      'Recording ready (' + (trimmed.length / sr).toFixed(1) + ' s). Peak ' +
+      'Recording ready (' + (trimmed.length / sr).toFixed(1) + ' s). Input: ' + recordAudioDeviceName +
+      (recordUsingUsb ? ' (USB)' : '') + '. Peak ' +
       peakDb.toFixed(1) + ' dBFS. ' + micLabel + '. Save audio and email it to sebastian.carta@tyche-lab.com.',
       'ok'
     );
