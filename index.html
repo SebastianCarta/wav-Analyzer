@@ -198,7 +198,18 @@
       (e.g. <strong>induction_motor_drive_end_10cm_4in_USB_PnP_Sound_Device_2026-06-12_15-42-07_+2_Android_recording.wav</strong>).
     </p>
 
-    <p class="audio-device" id="audioDeviceLabel">Audio input: not selected yet</p>
+    <p class="audio-device" id="audioDeviceLabel">Audio input: allow microphone access to detect devices</p>
+
+    <div class="field">
+      <label for="micSelect">Microphone</label>
+      <select id="micSelect" disabled>
+        <option value="">Allow microphone access first</option>
+      </select>
+    </div>
+
+    <div class="row" style="margin-top:0;">
+      <button id="btnAllowMic" type="button">Allow microphone access</button>
+    </div>
 
     <div class="row">
       <button id="btnRecord" class="record-btn" type="button">Record (unprocessed)</button>
@@ -207,6 +218,11 @@
       <button id="btnStop" type="button" disabled>Stop listening</button>
       <button id="btnSaveRaw" type="button" disabled>Save audio</button>
     </div>
+
+    <p class="hint" style="margin-top:0;">
+      Connect a USB microphone before allowing access. On Android, tap
+      <strong>Allow microphone access</strong> first, then choose the USB or external input from the list.
+    </p>
 
     <p class="hint">
       Recording uses raw PCM on all devices (no codec, AGC/NS/EC off). Save audio, then send an email to
@@ -233,7 +249,11 @@
   const descriptionInput = $('descriptionInput');
   const distanceSelect = $('distanceSelect');
   const audioDeviceLabelEl = $('audioDeviceLabel');
+  const micSelect = $('micSelect');
   const audioPlayer = $('audioPlayer');
+
+  let micPermissionGranted = false;
+  let availableMicDevices = [];
 
   let audioCtx = null;
   let monoData = null;
@@ -290,7 +310,9 @@
     return { audio };
   }
 
-  const USB_AUDIO_RE = /\busb\b|uac\d|usb[\s_-]?audio|usb headset|usb microphone|usb device|usbaudio|android\.hardware\.usb/i;
+  const USB_AUDIO_RE = /\busb\b|uac\d|usb[\s_-]?audio|usb headset|usb microphone|usb device|usbaudio|android\.hardware\.usb|type-c/i;
+  const BUILTIN_MIC_RE = /built[- ]?in|internal|handset|handset mic|phone|bottom|back|primary|speakerphone|earpiece|integrated|android audio|default -|microfono/i;
+  const PSEUDO_DEVICE_IDS = new Set(['default', 'communications']);
 
   function isUsbAudioDevice(deviceOrLabel) {
     const label = typeof deviceOrLabel === 'string'
@@ -299,55 +321,190 @@
     return USB_AUDIO_RE.test(label);
   }
 
+  function isBuiltInMic(label, deviceId) {
+    if (deviceId && PSEUDO_DEVICE_IDS.has(deviceId)) return true;
+    return BUILTIN_MIC_RE.test(label || '');
+  }
+
+  function formatMicOptionLabel(info) {
+    let text = info.label;
+    if (info.isUsb) text += ' (USB)';
+    else if (!info.isBuiltIn) text += ' (external)';
+    else text += ' (built-in)';
+    return text;
+  }
+
   async function enumerateAudioInputs() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
     const devices = await navigator.mediaDevices.enumerateDevices();
-    return devices.filter((d) => d.kind === 'audioinput');
+    return devices.filter((d) => d.kind === 'audioinput' && d.deviceId);
   }
 
-  function pickPreferredAudioInput(devices) {
-    const usbDevices = devices.filter((d) => isUsbAudioDevice(d));
-    if (usbDevices.length) return { device: usbDevices[0], isUsb: true };
-    const labeled = devices.find((d) => d.label);
-    return { device: labeled || devices[0] || null, isUsb: false };
+  function getConcreteAudioInputs(devices) {
+    const concrete = devices.filter((d) => !PSEUDO_DEVICE_IDS.has(d.deviceId));
+    return concrete.length ? concrete : devices;
   }
 
-  function getStreamDeviceLabel(stream, deviceInfo) {
-    const track = stream.getAudioTracks()[0];
-    if (track && track.label) return track.label;
-    if (deviceInfo && deviceInfo.label) return deviceInfo.label;
-    return 'Built-in microphone';
+  async function probeDeviceLabel(deviceId) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(buildMicConstraints(deviceId));
+      const track = stream.getAudioTracks()[0];
+      const label = (track && track.label) || '';
+      stream.getTracks().forEach((t) => t.stop());
+      return label;
+    } catch (_) {
+      return '';
+    }
   }
 
-  async function acquireRecordStream() {
+  async function resolveDeviceInfo(device, index) {
+    let label = device.label || '';
+    if (!label || /^default$/i.test(label.trim())) {
+      label = await probeDeviceLabel(device.deviceId);
+    }
+    if (!label || /^default$/i.test(label.trim())) {
+      label = 'Microphone ' + (index + 1);
+    }
+    const isUsb = isUsbAudioDevice(label);
+    const isBuiltIn = !isUsb && isBuiltInMic(label, device.deviceId);
+    return {
+      deviceId: device.deviceId,
+      label,
+      isUsb,
+      isBuiltIn,
+      isExternal: !isUsb && !isBuiltIn
+    };
+  }
+
+  function sortMicDevices(devices) {
+    return devices.slice().sort((a, b) => {
+      const rank = (d) => (d.isUsb ? 0 : d.isExternal ? 1 : 2);
+      const diff = rank(a) - rank(b);
+      return diff !== 0 ? diff : a.label.localeCompare(b.label);
+    });
+  }
+
+  function pickPreferredMicDevice(devices) {
+    const sorted = sortMicDevices(devices);
+    return sorted[0] || null;
+  }
+
+  function populateMicSelect(devices, selectedId) {
+    micSelect.innerHTML = '';
+    if (!devices.length) {
+      micSelect.disabled = true;
+      micSelect.innerHTML = '<option value="">No microphone found</option>';
+      return;
+    }
+
+    devices.forEach((info) => {
+      const option = document.createElement('option');
+      option.value = info.deviceId;
+      option.textContent = formatMicOptionLabel(info);
+      if (info.isUsb) option.dataset.usb = '1';
+      micSelect.appendChild(option);
+    });
+
+    micSelect.disabled = isRecording || isPlaying;
+    const preferred = selectedId || pickPreferredMicDevice(devices).deviceId;
+    micSelect.value = devices.some((d) => d.deviceId === preferred)
+      ? preferred
+      : devices[0].deviceId;
+    updateSelectedMicLabel();
+  }
+
+  function getSelectedMicDevice() {
+    const deviceId = micSelect.value;
+    if (!deviceId) return null;
+    return availableMicDevices.find((d) => d.deviceId === deviceId) || null;
+  }
+
+  function updateSelectedMicLabel() {
+    const selected = getSelectedMicDevice();
+    if (!selected) {
+      setAudioDeviceLabel('No microphone selected', false);
+      return;
+    }
+    setAudioDeviceLabel(selected.label, selected.isUsb);
+  }
+
+  async function refreshMicDeviceList(preferredId) {
+    const inputs = getConcreteAudioInputs(await enumerateAudioInputs());
+    if (!inputs.length) {
+      availableMicDevices = [];
+      populateMicSelect([], '');
+      return [];
+    }
+
+    const resolved = [];
+    for (let i = 0; i < inputs.length; i++) {
+      resolved.push(await resolveDeviceInfo(inputs[i], i));
+    }
+    availableMicDevices = sortMicDevices(resolved);
+    populateMicSelect(availableMicDevices, preferredId);
+    return availableMicDevices;
+  }
+
+  async function requestMicAccess() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('Microphone access is not supported in this browser.');
+    }
+
+    $('btnAllowMic').disabled = true;
+    setStatus('Requesting microphone permission…');
+
     let permissionStream;
     try {
       permissionStream = await navigator.mediaDevices.getUserMedia(buildMicConstraints());
     } catch (e) {
+      $('btnAllowMic').disabled = isRecording || isPlaying;
       throw e;
     }
 
-    const inputs = await enumerateAudioInputs();
-    const preferred = pickPreferredAudioInput(inputs);
-    const activeTrack = permissionStream.getAudioTracks()[0];
-    const activeId = activeTrack && activeTrack.getSettings().deviceId;
+    permissionStream.getTracks().forEach((t) => t.stop());
+    micPermissionGranted = true;
+    const devices = await refreshMicDeviceList();
+    $('btnAllowMic').disabled = isRecording || isPlaying;
+    $('btnAllowMic').textContent = 'Refresh microphone list';
 
-    if (preferred.device && preferred.device.deviceId && preferred.device.deviceId !== activeId) {
-      permissionStream.getTracks().forEach((t) => t.stop());
-      try {
-        const usbStream = await navigator.mediaDevices.getUserMedia(
-          buildMicConstraints(preferred.device.deviceId)
-        );
-        const label = getStreamDeviceLabel(usbStream, preferred.device);
-        return { stream: usbStream, label, isUsb: true };
-      } catch (_) {
-        permissionStream = await navigator.mediaDevices.getUserMedia(buildMicConstraints());
-      }
+    if (!devices.length) {
+      setStatus('Microphone permission granted, but no input device was found.', 'error');
+      return devices;
     }
 
-    const label = getStreamDeviceLabel(permissionStream, preferred.device);
-    const isUsb = preferred.isUsb || isUsbAudioDevice(label);
-    return { stream: permissionStream, label, isUsb };
+    const preferred = pickPreferredMicDevice(devices);
+    const usbCount = devices.filter((d) => d.isUsb).length;
+    const externalCount = devices.filter((d) => d.isExternal).length;
+    let msg = 'Microphone access granted. ' + devices.length + ' input device(s) found.';
+    if (usbCount) msg += ' USB audio selected automatically.';
+    else if (externalCount) msg += ' External microphone selected automatically.';
+    else msg += ' Select the correct input if a USB device is connected.';
+    setStatus(msg, 'ok');
+    if (preferred) setAudioDeviceLabel(preferred.label, preferred.isUsb);
+    return devices;
+  }
+
+  async function acquireRecordStream() {
+    if (!micPermissionGranted) {
+      await requestMicAccess();
+    }
+
+    let selected = getSelectedMicDevice();
+    if (!selected) {
+      const devices = await refreshMicDeviceList();
+      selected = pickPreferredMicDevice(devices);
+    }
+    if (!selected) {
+      throw new Error('No microphone available. Allow microphone access and try again.');
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia(buildMicConstraints(selected.deviceId));
+    const track = stream.getAudioTracks()[0];
+    const trackLabel = (track && track.label) || selected.label;
+    const label = trackLabel && !/^default$/i.test(trackLabel.trim()) ? trackLabel : selected.label;
+    const isUsb = selected.isUsb || isUsbAudioDevice(label);
+    if (micSelect.value !== selected.deviceId) micSelect.value = selected.deviceId;
+    return { stream, label, isUsb, deviceId: selected.deviceId };
   }
 
   function sanitizeDeviceName(name) {
@@ -366,7 +523,7 @@
   }
 
   function setAudioDeviceLabel(name, isUsb) {
-    const suffix = isUsb ? ' (USB, preferred)' : '';
+    const suffix = isUsb ? ' (USB)' : '';
     audioDeviceLabelEl.innerHTML = '<strong>Audio input:</strong> ' + escapeHtml(name) + suffix;
     audioDeviceLabelEl.className = 'audio-device' + (isUsb ? ' usb' : '');
   }
@@ -568,6 +725,8 @@
     $('btnPlay').disabled = !hasAudio || isRecording || isPlaying;
     $('btnStop').disabled = !isPlaying;
     $('btnSaveRaw').disabled = !hasAudio || isRecording || isPlaying;
+    $('btnAllowMic').disabled = isRecording || isPlaying;
+    micSelect.disabled = !micPermissionGranted || isRecording || isPlaying;
   }
 
   function showFileInfo(duration, peakDb, micLabel, audioDeviceName, isUsb) {
@@ -771,8 +930,30 @@
   });
   $('btnSaveRaw').addEventListener('click', saveRaw);
 
+  $('btnAllowMic').addEventListener('click', async () => {
+    try {
+      await requestMicAccess();
+    } catch (e) {
+      $('btnAllowMic').disabled = isRecording || isPlaying;
+      setStatus('Microphone access failed: ' + (e.message || e), 'error');
+    }
+  });
+
+  micSelect.addEventListener('change', updateSelectedMicLabel);
+
+  if (navigator.mediaDevices) {
+    navigator.mediaDevices.addEventListener('devicechange', async () => {
+      if (!micPermissionGranted || isRecording || isPlaying) return;
+      try {
+        const current = micSelect.value;
+        await refreshMicDeviceList(current);
+        setStatus('Microphone list updated.', 'ok');
+      } catch (_) {}
+    });
+  }
+
   updateButtons();
-  setStatus('Tap Record to capture audio.');
+  setStatus('Connect USB audio if needed, then tap Allow microphone access.');
 })();
 </script>
 </body>
